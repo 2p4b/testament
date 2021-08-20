@@ -66,18 +66,20 @@ defmodule Testament.Store do
                 events
                 |> Enum.map(fn %SigEvent{}=sig_event -> 
 
-                    %{stream: {stype, sid}, payload: payload} = sig_event
+                    %{type: type} = sig_event
 
-                    {type, payload} = Serializer.serialize(payload)
+                    stream = get_or_create_stream(sig_event.stream)
+
+                    payload = Serializer.serialize(sig_event.payload)
 
                     attrs = 
                         sig_event
                         |> Map.from_struct()
                         |> Map.delete(:stream)
-                        |> Map.put(:type, type)
+                        |> Map.put(:type, sig_event.type)
                         |> Map.put(:payload, payload)
-                        |> Map.put(:stream_id, sid)
-                        |> Map.put(:stream_type, Helper.module_to_string(stype))
+                        |> Map.put(:stream_id, stream.id)
+                        |> Map.put(:stream_type, stream.type)
 
                     {:ok, _event} =
                         %Event{}
@@ -103,6 +105,21 @@ defmodule Testament.Store do
         query
         |> Repo.all() 
         |> Enum.map(&Event.to_sig_event/1)
+    end
+
+    defp get_or_create_stream({type, id}) do
+        type = Atom.to_string(type)
+        stream =
+            Stream.query([id: id, type: type])
+            |> Repo.one()
+        if is_nil(stream) do
+            attrs = %{id: id, type: type}
+            %Stream{}
+            |> Stream.changeset(attrs)
+            |> Repo.insert()
+        else
+            stream
+        end
     end
 
 end

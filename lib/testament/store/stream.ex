@@ -10,7 +10,7 @@ defmodule Testament.Store.Stream do
     schema "streams" do
         field :id,              :string
         field :type,            :string
-        field :position,        :string
+        field :position,        :integer,   default: 0
         timestamps()
     end
 

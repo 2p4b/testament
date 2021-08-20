@@ -1,21 +1,24 @@
 defmodule Testament.Serializer do
 
-    alias Signal.Codec
-    alias Signal.Helper
+    @moduledoc """
+    A serializer that uses Erlang's external term 
+    format (http://erlang.org/doc/apps/erts/erl_ext_dist.html)
+    """
 
-    def serialize(%{__struct__: type}=event) when is_struct(event) do
-        payload =
-            event
-            |> Codec.encode()
-            |> Jason.encode!()
-        {Helper.module_to_string(type), payload}
+    @behaviour EventStore.Serializer
+
+    @doc """
+    Serialize given term to binary data.
+    """
+    def serialize(term) do
+        :erlang.term_to_binary(term)
     end
 
-    def deserialize(binary, %{type: type}) when is_binary(binary) and is_binary(type) do
-        type
-        |> Helper.string_to_module()
-        |> Kernel.struct([])
-        |> Codec.load(Jason.decode!(binary))
+    @doc """
+    Deserialize given binary data in Erlang's external term format.
+    """
+    def deserialize(binary, _config \\ []) do
+        :erlang.binary_to_term(binary)
     end
 
 end
