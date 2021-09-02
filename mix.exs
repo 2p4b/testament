@@ -24,7 +24,7 @@ defmodule Testament.MixProject do
     def application do
         [
             mod: {Testament.Application, []},
-            extra_applications: [:logger, :runtime_tools]
+            extra_applications: [:logger, :runtime_tools, :ex_machina]
         ]
     end
 
@@ -40,6 +40,7 @@ defmodule Testament.MixProject do
             {:jason, "~> 1.0"},
             {:myxql, ">= 0.0.0"},
             {:ecto_sql, "~> 3.1"},
+            {:ex_machina, "~> 2.6.0"},
             {:phoenix_pubsub, "~> 2.0"},
             {:signal, in_umbrella: true},
         ]

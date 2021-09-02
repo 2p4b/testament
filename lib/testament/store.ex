@@ -1,30 +1,26 @@
 defmodule Testament.Store do
 
     import Ecto.Query, warn: false
-    alias Signal.Helper
     alias Testament.Repo
-    alias Testament.Serializer
     alias Testament.Store.Event
-    alias Testament.Store.Handler
+    alias Testament.Store.Handle
+    alias Testament.Store.Stream
+    alias Testament.Store.Snapshot
     alias Signal.Aggregates.Aggregate
-    alias Signal.Events.Event, as: SigEvent
-
-    def snapshot(%Aggregate{}) do
-    end
 
     def events_count() do
         query = from event in Event, select: count() 
         Repo.one(query)
     end
 
-    def update_handler(name, position) do
+    def update_handle(id, position) do
         res =
-            %Handler{name: name, position: position}
-            |> Handler.changeset(%{name: name, position: position})
+            %Handle{id: id, position: position}
+            |> Handle.changeset(%{id: id, position: position})
             |> Repo.update()
 
         case res do
-            {:ok, %Handler{position: position}} ->
+            {:ok, %Handle{position: position}} ->
                 {:ok, position}
 
             error ->
@@ -32,64 +28,14 @@ defmodule Testament.Store do
         end
     end
 
-    def get_handler_position(name) do
-        query = 
-            from handler in Handler, 
-            where: handler.name == ^name,
-            select: handler.position
-
-        case Repo.one(query) do
-            %Handler{position: position} ->
-                 position
-
-            _ ->
-                position = 0
-                attrs = %{name: name, position: position} 
-                {:ok, _handler} =
-                    %Handler{}
-                    |> Handler.changeset(attrs)
-                    |> Repo.insert()
-                position
-        end
-    end
-
     def get_stream({type, id}) when is_atom(type) and is_binary(id) do
-        type = Atom.to_string(type)
         Stream.query([id: id, type: type])
         |> Repo.one()
     end
 
-    def record_events(number, events) 
-    when is_integer(number) and is_list(events) do
-        Repo.transaction(fn -> 
-            events =
-                events
-                |> Enum.map(fn %SigEvent{}=sig_event -> 
-
-                    %{type: type} = sig_event
-
-                    stream = get_or_create_stream(sig_event.stream)
-
-                    payload = Serializer.serialize(sig_event.payload)
-
-                    attrs = 
-                        sig_event
-                        |> Map.from_struct()
-                        |> Map.delete(:stream)
-                        |> Map.put(:type, sig_event.type)
-                        |> Map.put(:payload, payload)
-                        |> Map.put(:stream_id, stream.id)
-                        |> Map.put(:stream_type, stream.type)
-
-                    {:ok, _event} =
-                        %Event{}
-                        |> Event.changeset(attrs)
-                        |> Repo.insert()
-
-                    sig_event
-                end)
-            {events, number}
-        end)
+    def get_handle(id) when is_binary(id) do
+        Handle.query([id: id])
+        |> Repo.one()
     end
 
     def pull_events(topics, position, amount) 
@@ -104,22 +50,128 @@ defmodule Testament.Store do
 
         query
         |> Repo.all() 
-        |> Enum.map(&Event.to_sig_event/1)
+        |> Enum.map(&Event.to_stream_event/1)
     end
 
-    defp get_or_create_stream({type, id}) do
-        type = Atom.to_string(type)
+    def get_or_create_stream({type, id}) do
         stream =
             Stream.query([id: id, type: type])
             |> Repo.one()
+
         if is_nil(stream) do
-            attrs = %{id: id, type: type}
-            %Stream{}
-            |> Stream.changeset(attrs)
-            |> Repo.insert()
+            {:ok, stream} = create_stream({type, id})
+            stream
         else
             stream
         end
+    end
+
+    def get_or_create_handle(id) do
+        handle =
+            Handle.query([id: id])
+            |> Repo.one()
+
+        if is_nil(handle) do
+            {:ok, handle} = create_handle(id)
+            handle
+        else
+            handle
+        end
+    end
+
+    def create_stream({type, id}, position \\ 0) do
+        attrs = %{id: id, type: type, position: position}
+        %Stream{}
+        |> Stream.changeset(attrs)
+        |> Repo.insert()
+    end
+
+    def create_handle(id, position \\ 0) do
+        %Handle{}
+        |> Handle.changeset(%{id: id, position: position})
+        |> Repo.insert()
+    end
+
+    def update_stream_position(%Stream{}=stream, position) 
+    when is_integer(position) do
+        stream
+        |> Stream.changeset(%{position: position})
+        |> Repo.update()
+    end
+
+    def update_handle_position(%Handle{}=handle, position) 
+    when is_integer(position) do
+        handle
+        |> Handle.changeset(%{position: position})
+        |> Repo.update()
+    end
+
+    def record_events(staged) when is_list(staged) do
+        commit =
+            Repo.transaction(fn -> 
+                staged
+                |> Enum.map(fn %{stream: stream} = staged -> 
+                    store_stream = get_or_create_stream(stream)
+
+                    insert_staged_events(store_stream, staged)
+                end)
+            end)
+
+        case commit do
+            {:ok, history} ->
+                {:ok, history}
+
+            error ->
+                error
+        end
+
+    end
+
+    def create_snapshot(%Signal.Snapshot{}=snapshot) do
+        %Snapshot{}
+        |> Snapshot.changeset(Map.from_struct(snapshot))
+        |> Repo.insert()
+    end
+
+    def create_event(attrs) do
+        %Event{}
+        |> Event.changeset(attrs)
+        |> Repo.insert()
+    end
+
+    defp insert_staged_events(store_stream, staged) do
+
+        %{events: events, version: version} = staged
+
+        %{uuid: stream_id, position: position} = store_stream
+
+        version = 
+            if is_nil(version) do 
+                position + length(events)
+            else 
+                version
+            end
+
+        initial = {[], position}
+
+        preped = 
+            Enum.reduce(events, initial, fn event, {events, position} -> 
+                position = position + 1
+                attrs = 
+                    Event.map_from_staged_event(event)
+                    |> Map.put(:position, position)
+                    |> Map.put(:stream_id, stream_id)
+                    
+                {:ok, event} = create_event(attrs)
+
+                {events ++ List.wrap(event), position}
+            end)
+
+        {events, ^version} = preped 
+
+        {:ok, store_stream} = update_stream_position(store_stream, version)
+
+        {store_stream, events}
     end
 
 end

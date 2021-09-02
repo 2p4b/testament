@@ -5,8 +5,6 @@ defmodule Testament.Serializer do
     format (http://erlang.org/doc/apps/erts/erl_ext_dist.html)
     """
 
-    @behaviour EventStore.Serializer
-
     @doc """
     Serialize given term to binary data.
     """
@@ -17,7 +15,7 @@ defmodule Testament.Serializer do
     @doc """
     Deserialize given binary data in Erlang's external term format.
     """
-    def deserialize(binary, _config \\ []) do
+    def deserialize(binary) do
         :erlang.binary_to_term(binary)
     end
 

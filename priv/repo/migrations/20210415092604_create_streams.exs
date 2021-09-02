@@ -3,7 +3,8 @@ defmodule Testament.Repo.Migrations.CreateStreams do
 
     def change do
         create table(:streams, primary_key: false) do
-            add :id,        :string,      primary_key: true
+            add :uuid,      :uuid,      primary_key: true
+            add :id,        :string
             add :type,      :string
             add :position,  :integer
             timestamps()

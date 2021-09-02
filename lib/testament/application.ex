@@ -8,7 +8,7 @@ defmodule Testament.Application do
     def start(_type, _args) do
         children = [
             Testament.Repo,
-            Testament.Recorder,
+            Testament.Publisher,
             {Phoenix.PubSub, name: :testament}
         ]
 

@@ -1,14 +1,18 @@
 defmodule Testament.Store.Snapshot do
     use Ecto.Schema
     import Ecto.Changeset
+    alias Testament.DataType
 
-    @fields [:version, :stream_type, :stream_id, :payload]
+    @fields [ :id, :data, :version]
+
+    @required [ :id, :data, :version]
+
+    @primary_key {:uuid, :binary_id, autogenerate: true}
 
     schema "snapshots" do
-        field :payload,     :string
+        field :id,          :string
+        field :data,        DataType
         field :version,     :integer
-        field :stream_id,   :string
-        field :stream_type, :string
         timestamps()
     end
 
@@ -16,6 +20,6 @@ defmodule Testament.Store.Snapshot do
     def changeset(snapshot, attrs) do
         snapshot
         |> cast(attrs, @fields)
-        |> validate_required(@fields)
+        |> validate_required(@required)
     end
 end

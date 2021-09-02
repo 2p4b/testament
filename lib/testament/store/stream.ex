@@ -2,6 +2,7 @@ defmodule Testament.Store.Stream do
     use Testament.Schema, row: :stream
 
     import Ecto.Changeset
+    alias Testament.AtomType
 
     @fields [:id, :type, :position]
 
@@ -9,7 +10,7 @@ defmodule Testament.Store.Stream do
 
     schema "streams" do
         field :id,              :string
-        field :type,            :string
+        field :type,            AtomType
         field :position,        :integer,   default: 0
         timestamps()
     end
