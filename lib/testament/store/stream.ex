@@ -4,15 +4,14 @@ defmodule Testament.Store.Stream do
     import Ecto.Changeset
     alias Testament.AtomType
 
-    @fields [:id, :type, :position]
+    @fields [:uuid, :id, :type, :position]
 
-    @primary_key {:uuid, :binary_id, autogenerate: true}
+    @primary_key {:uuid, :binary_id, autogenerate: false}
 
     schema "streams" do
         field :id,              :string
         field :type,            AtomType
         field :position,        :integer,   default: 0
-        timestamps()
     end
 
     @doc false

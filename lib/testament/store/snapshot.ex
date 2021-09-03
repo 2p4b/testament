@@ -13,7 +13,6 @@ defmodule Testament.Store.Snapshot do
         field :id,          :string
         field :data,        DataType
         field :version,     :integer
-        timestamps()
     end
 
     @doc false

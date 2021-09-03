@@ -7,7 +7,6 @@ defmodule Testament.Repo.Migrations.CreateStreams do
             add :id,        :string
             add :type,      :string
             add :position,  :integer
-            timestamps()
         end
     end
 end

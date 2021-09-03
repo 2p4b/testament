@@ -40,7 +40,7 @@ defmodule Testament do
         PubSub.subscribe(:testament, topic)
     end
 
-    def boardcast(topic, event) do
+    def broadcast(topic, event) do
         PubSub.broadcast(:testament, topic, event)
     end
 

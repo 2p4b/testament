@@ -14,13 +14,13 @@ defmodule Testament.Store.Event do
     ]
 
     @required [
-        :topic, :position, :type,
+        :topic, :position, :type, :number,
         :stream_id, :data, :causation_id, :correlation_id, :timestamp
     ]
 
     @foreign_key_type :binary_id
 
-    @primary_key {:number, :id, autogenerate: true}
+    @primary_key {:number, :id, autogenerate: false}
 
     schema "events" do
         field :uuid,            Ecto.UUID,  autogenerate: true
@@ -33,8 +33,6 @@ defmodule Testament.Store.Event do
         field :timestamp,       :utc_datetime_usec
 
         belongs_to  :stream,    Stream,     foreign_key: :stream_id
-
-        timestamps(created_at: false, updated_at: false)
     end
 
     @doc false
@@ -61,12 +59,18 @@ defmodule Testament.Store.Event do
     end
 
     def stream(%Event{}=event) do
-        %{type: type, id: id} =
+        stream =
             event
             |> Testament.Repo.preload(:stream)
             |> Map.get(:stream)
 
-        {type, id}
+        case stream do
+            %{type: type, id: id} ->
+                {type, id}
+
+            nil ->
+                {:unkown_stream_type, ""}
+        end
     end
 
 end

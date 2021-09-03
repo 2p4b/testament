@@ -2,7 +2,6 @@ defmodule Testament.StoreTest do
     use ExUnit.Case
     alias Testament.Store
     alias Testament.Publisher
-    alias Testament.Store.Event
 
     import Testament.Factory
 
@@ -18,26 +17,24 @@ defmodule Testament.StoreTest do
         test "should have same type as published event" do
             event = build(:value_updated)
 
-            %{__struct__: type} = event
+            staged = Publisher.stage_event(event)
 
-            staged = 
-                Publisher.stage_event(event)
-                |> List.wrap()
+            %{events: [event]} = staged
 
-            {:ok, log} = Store.record_events(staged)
+            %{data: data, topic: topic, type: type} = event
 
-            [stream_event] =
-                log
-                |> Enum.map(fn {stream, events} -> 
-                    Enum.map(events, fn event -> 
-                        event
-                        |> struct(%{stream: stream}) 
-                        |> Event.to_stream_event()
-                    end)
-                end)
-                |> List.flatten()
+            event_attrs =
+                Map.from_struct(event)
+                |> Map.put(:number, 9)
+                |> Map.put(:position, 0)
+                |> Map.put(:uuid, Ecto.UUID.generate())
+                |> Map.put(:stream_id, Ecto.UUID.generate())
 
-            assert stream_event.type == type
+            {:ok, store_event} = Store.create_event(event_attrs)
+
+            assert store_event.type == type
+            assert store_event.data == data
+            assert store_event.topic == topic
         end
 
         @tag :store

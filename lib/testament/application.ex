@@ -7,11 +7,14 @@ defmodule Testament.Application do
 
     def start(_type, _args) do
         children = [
+            {Phoenix.PubSub, name: :testament},
+            {Registry, keys: :unique, name: Testament.Broker.Registry},
+            Testament.Subscription.Supervisor,
             Testament.Repo,
             Testament.Publisher,
-            {Phoenix.PubSub, name: :testament}
         ]
 
         Supervisor.start_link(children, strategy: :one_for_one, name: Testament.Supervisor)
     end
+
 end

@@ -8,7 +8,6 @@ defmodule Testament.Store.Handle do
 
     schema "handles" do
         field :position,    :integer,   default: 0
-        timestamps()
     end
 
     @doc false

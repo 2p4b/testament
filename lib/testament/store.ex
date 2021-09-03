@@ -6,7 +6,6 @@ defmodule Testament.Store do
     alias Testament.Store.Handle
     alias Testament.Store.Stream
     alias Testament.Store.Snapshot
-    alias Signal.Aggregates.Aggregate
 
     def events_count() do
         query = from event in Event, select: count() 
@@ -26,11 +25,6 @@ defmodule Testament.Store do
             error ->
                 error
         end
-    end
-
-    def get_stream({type, id}) when is_atom(type) and is_binary(id) do
-        Stream.query([id: id, type: type])
-        |> Repo.one()
     end
 
     def get_handle(id) when is_binary(id) do
@@ -53,17 +47,9 @@ defmodule Testament.Store do
         |> Enum.map(&Event.to_stream_event/1)
     end
 
-    def get_or_create_stream({type, id}) do
-        stream =
-            Stream.query([id: id, type: type])
-            |> Repo.one()
-
-        if is_nil(stream) do
-            {:ok, stream} = create_stream({type, id})
-            stream
-        else
-            stream
-        end
+    def get_stream({type, id}) do
+        Stream.query([id: id, type: type])
+        |> Repo.one()
     end
 
     def get_or_create_handle(id) do
@@ -79,8 +65,17 @@ defmodule Testament.Store do
         end
     end
 
-    def create_stream({type, id}, position \\ 0) do
-        attrs = %{id: id, type: type, position: position}
+    def create_stream({type, id}) when is_atom(type) and is_binary(id) do
+        create_stream(%{type: type, id: id})
+    end
+
+    def create_stream(attrs) when is_map(attrs) do
+        attrs = 
+            if Map.has_key?(attrs, :uuid) do
+                attrs
+            else
+                Map.put(attrs, :uuid, Ecto.UUID.generate())
+            end
         %Stream{}
         |> Stream.changeset(attrs)
         |> Repo.insert()
@@ -106,27 +101,6 @@ defmodule Testament.Store do
         |> Repo.update()
     end
 
-    def record_events(staged) when is_list(staged) do
-        commit =
-            Repo.transaction(fn -> 
-                staged
-                |> Enum.map(fn %{stream: stream} = staged -> 
-                    store_stream = get_or_create_stream(stream)
-
-                    insert_staged_events(store_stream, staged)
-                end)
-            end)
-
-        case commit do
-            {:ok, history} ->
-                {:ok, history}
-
-            error ->
-                error
-        end
-
-    end
-
     def create_snapshot(%Signal.Snapshot{}=snapshot) do
         %Snapshot{}
         |> Snapshot.changeset(Map.from_struct(snapshot))
@@ -139,39 +113,59 @@ defmodule Testament.Store do
         |> Repo.insert()
     end
 
-    defp insert_staged_events(store_stream, staged) do
+    def query_event_topics([]) do
+        Event.query()
+    end
 
-        %{events: events, version: version} = staged
+    def query_event_topics(topics) when is_list(topics) do
+        query_event_topics(Event.query(), topics)
+    end
 
-        %{uuid: stream_id, position: position} = store_stream
+    def query_event_topics(query, [topic | topics]) do
+        query =
+            from [event: event] in query,  
+            where: event.topic == ^topic
 
-        version = 
-            if is_nil(version) do 
-                position + length(events)
-            else 
-                version
-            end
+        Enum.reduce(topics, query, fn topic, query -> 
+            from [event: event] in query,  
+            or_where: event.topic == ^topic
+        end) 
+    end
 
-        initial = {[], position}
+    def query_event_streams([]) do
+        Event.query()
+    end
 
-        preped = 
-            Enum.reduce(events, initial, fn event, {events, position} -> 
-                position = position + 1
-                attrs = 
-                    Event.map_from_staged_event(event)
-                    |> Map.put(:position, position)
-                    |> Map.put(:stream_id, stream_id)
-                    
-                {:ok, event} = create_event(attrs)
+    def query_event_streams(streams) when is_list(streams) do
+        query_event_streams(Event.query(), streams)
+    end
 
-                {events ++ List.wrap(event), position}
-            end)
+    def query_event_streams(query, [{type, id} | streams]) do
+        sub_query =
+            from [stream: stream] in Stream.query(),  
+            where: [type: ^type, id: ^id]
 
-        {events, ^version} = preped 
+        sub_query =
+            Enum.reduce(streams, sub_query, fn {type, id}, query -> 
+                from [stream: stream] in query,  
+                or_where: [type: ^type, id: ^id]
+            end) 
 
-        {:ok, store_stream} = update_stream_position(store_stream, version)
+        sub_query =
+            from [stream: stream] in sub_query,
+            select: stream.uuid
 
-        {store_stream, events}
+        from [event: event] in query,  
+        where: event.stream_id in subquery(sub_query)
+    end
+
+    def query_events_from(number) when is_integer(number) do
+        query_events_from(Event.query(), number)
+    end
+
+    def query_events_from(query, number) when is_integer(number) do
+        from [event: event] in query,  
+        where: event.number > ^number
     end
 
 end
