@@ -1,7 +1,10 @@
 defmodule Testament do
 
     alias Phoenix.PubSub
+    alias Testament.Store
     alias Testament.Recorder
+    alias Testament.Publisher
+    alias Testament.Subscription.Broker
 
     @behaviour Signal.Store
 
@@ -25,11 +28,17 @@ defmodule Testament do
     end
 
     def index(_opts) do
-        0
+        Publisher.index()
     end
 
-    def event(_number, _opts \\ []) do
-        nil
+    def event(number, _opts \\ []) do
+        case Store.get_event(number) do
+            %{}=event ->
+                Store.Event.to_stream_event(event)
+
+            nil -> 
+                nil
+        end
     end
 
     def snapshot(_id, _opts \\ []) do
@@ -45,7 +54,7 @@ defmodule Testament do
     end
 
     def subscribe(opts) when is_list(opts) do
-        subscribe(nil, opts)
+        Broker.subscribe(nil, opts)
     end
 
     def subscribe(handle) when is_binary(handle) do
@@ -53,24 +62,25 @@ defmodule Testament do
     end
 
     def subscribe(handle, opts) when is_binary(handle) and is_list(opts) do
-        {handle, opts}
+        Broker.subscribe(handle, opts)
     end
 
-    def subscription(_opts \\ []) do
+    def subscription(opts \\ []) do
+        Broker.subscription(opts)
     end
 
-    def unsubscribe(_opts \\ []) do
+    def unsubscribe(opts \\ []) do
+        Broker.unsubscribe(opts)
     end
 
-    def stream_position(_stream, _opts\\[]) do
-        0
-    end
+    def stream_position(stream, _opts\\[]) do
+        case Store.get_stream(stream) do
+            %{position: position} ->
+                position
 
-    def get_state(id, _opts \\ []) when is_binary(id) do
-    end
-
-    def set_state(id, version, _state) 
-    when is_binary(id) and is_integer(version) do
+            nil ->
+                nil
+        end
     end
 
 end

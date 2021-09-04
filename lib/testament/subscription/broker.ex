@@ -1,18 +1,20 @@
 defmodule Testament.Subscription.Broker do
 
     use GenServer
+    alias Testament.Repo
     alias Testament.Store
-    alias Signal.Void.Repo
     alias Signal.Stream.Event
     alias Testament.Store.Handle
     alias Testament.Subscription.Broker
+    alias Testament.Subscription.Supervisor
 
     require Logger
 
     defstruct [
         id: nil,
+        worker: nil,
         cursor: 0, 
-        query: nil,
+        buffer: [],
         handle: nil,
         position: 0,
         anonymous: true,
@@ -52,7 +54,6 @@ defmodule Testament.Subscription.Broker do
                         %Handle{id: id, position: 0}
                 end
             end
-        Testament.listern("event")
         {:ok, struct(__MODULE__, id: id, handle: handle, anonymous: anonymous)}
     end
 
@@ -75,19 +76,9 @@ defmodule Testament.Subscription.Broker do
         if is_nil(subscription) do
             subscription = create_subscription(store, pid, opts)
             GenServer.reply(from, {:ok, subscription})
-            position = subscription.from
 
             subscriptions =
-                Repo.events()
-                |> Enum.filter(&(Map.get(&1, :number) > position))
-                |> Enum.find_value(subscription, fn event -> 
-                    sub = push_event(subscription, event) 
-                    if sub.syn == subscription.syn do
-                        false
-                    else
-                        sub
-                    end
-                end)
+                subscription
                 |> List.wrap()
                 |> Enum.concat(subscriptions)
 
@@ -99,9 +90,9 @@ defmodule Testament.Subscription.Broker do
                 subscriptions: subscriptions, 
             }
 
-            query = build_query(broker)
+            broker = start_worker_stream(broker)
 
-            {:noreply, %Broker{broker| query: query}} 
+            {:noreply, broker} 
         else
             {:noreply, subscription, store}
         end
@@ -116,71 +107,92 @@ defmodule Testament.Subscription.Broker do
     end
 
     @impl true
-    def handle_call({:next, position, opts}, _from, %Broker{}=store) 
-    when is_integer(position) do
-        {:ok, stream} = Keyword.fetch(opts, :stream)
-        event = 
-            Repo.events()
-            |> Enum.find(fn %Event{stream: estream, number: number} -> 
-                stream == estream and number > position
-            end)
-        {:reply, event, store} 
-    end
+    def handle_info({:broadcast, %{number: number}=event}, %Broker{}=broker) do
+        %Broker{subscriptions: subscriptions} = broker
+        index = Enum.find_index(subscriptions, fn sub -> 
+            handle?(sub, event)
+        end)
 
-    @impl true
-    def handle_info({:next, pid}, %Broker{}=store) do
-        %Broker{subscriptions: subs} = store
-        index = Enum.find_index(subs, &(Map.get(&1, :pid) == pid))
         if is_nil(index) do
-            {:noreply, store}
+            {:noreply, broker}
         else
-            subs =
-                store
-                |> Map.get(:subscriptions)
-                |> List.update_at(index, fn sub -> 
-                    push_next(store, sub)
-                end)
-            {:noreply, %Broker{store | subscriptions: subs}}
+            info = """
+
+            [BROKER] published #{inspect(event.type)}
+            """
+            Logger.info(info)
+            subscription = 
+                Enum.at(subscriptions, index)
+                |> Map.put(:syn, number)
+            send(subscription.pid, event)
+            subs = List.update_at(subscriptions, index, subscription)
+            {:noreply, %Broker{broker | subscriptions: subs}}
         end
     end
 
     @impl true
-    def handle_cast({:broadcast, %{number: number}=event}, %Broker{}=store) do
-        info = """
-
-        [BROKER] published #{inspect(event.type)}
-        """
-        Logger.info(info)
-        subs = Enum.map(store.subscriptions, fn sub -> 
-            push_event(sub, event)
-        end)
-        {:noreply, %Broker{store | subscriptions: subs, cursor: number}}
+    def handle_info({worker_ref, :finished}, %Broker{}=broker) do
+        fallen = 
+            build_query(broker) 
+            |> Repo.all()
+            |> Enum.map(&Event.to_stream_event/1)
+                
+        Testament.listern("event")
+        {:noreply, %Broker{broker | buffer: fallen}}
     end
 
     @impl true
-    def handle_cast({:ack, pid, number}, %Broker{}=store) do
-        store = handle_ack(store, pid, number)
-        {:noreply, store}
+    def handle_info({:DOWN, ref, :process, _pid, _status}, %Broker{}=broker) do
+        IO.inspect(ref, label: "down")
+        {:noreply, broker}
     end
 
-    defp push_event(%{syn: syn, ack: ack}=sub, _ev)
+    @impl true
+    def handle_cast({:ack, pid, number}, %Broker{}=broker) do
+        %Broker{handle: handle, anonymous: anonymous}=broker
+        %{position: position} = handle
+
+        store = handle_ack(broker, pid, number)
+
+        if anonymous do
+            {:noreply, broker}
+        else
+            %{subscriptions: subs} = broker
+
+            %{ack: ack} = Enum.max_by(subs, &(Map.get(&1, :ack)), fn -> 
+                %{ack: position} 
+            end)
+
+            if ack > position do
+                {:ok, handle} =
+                    Handle.changeset(handle, %{position: ack})
+                    |> Repo.insert_or_update()
+
+                {:noreply, %Broker{broker | handle: handle}}
+            else
+                {:noreply, store}
+            end
+        end
+    end
+
+    defp handle?(%{syn: syn, ack: ack}, _ev)
     when syn != ack do
-        sub
+        false
     end
 
-    defp push_event(%{handle: handle, syn: syn, ack: ack}=sub, _event)
+    defp handle?(%{handle: handle, syn: syn, ack: ack}, _event)
     when (not is_nil(handle)) and (syn > ack) do
-        sub
+        false
     end
 
-    defp push_event(%{from: position}=sub, %{number: number})
+    defp handle?(%{from: position}, %{number: number})
     when is_integer(position) and position > number do
-        sub
+        false
     end
 
-    defp push_event(%{stream: s_stream}=sub, %{stream: e_stream}=event) do
-        %{topics: topics} = sub
-        %{topic: topic, number: number} = event
+    defp handle?(%{stream: s_stream, topics: topics}, %{stream: e_stream}=event) do
+
+        %{topic: topic} = event
         {e_stream_type, _stream_id} = e_stream
 
         valid_stream =
@@ -213,16 +225,15 @@ defmodule Testament.Subscription.Broker do
             end
 
         if valid_stream and valid_topic do
-            Process.send(sub.pid, event, []) 
-            Map.put(sub, :syn, number)
+            true
         else
-            sub
+            false
         end
     end
 
 
-    defp create_subscription(%Broker{cursor: cursor}, pid, opts) do
-        from = Keyword.get(opts, :from, cursor)
+    defp create_subscription(%Broker{handle: handle}, pid, opts) do
+        from = Keyword.get(opts, :from, handle.position)
         topics = Keyword.get(opts, :topics, [])
         stream = Keyword.get(opts, :stream, nil)
         %{
@@ -236,70 +247,41 @@ defmodule Testament.Subscription.Broker do
     end
 
     defp handle_ack(%Broker{}=store, pid, number) do
-        %Broker{subscriptions: subscriptions, cursor: cursor} = store
-        index = Enum.find_index(subscriptions, &(Map.get(&1, :pid) == pid))
+        %Broker{subscriptions: subscriptions} = store
+        index = Enum.find_index(subscriptions, &(Map.get(&1, :pid) == pid and Map.get(&1, :syn) == number))
         if is_nil(index) do
             store
         else
             subscriptions = List.update_at(subscriptions, index, fn subscription -> 
-                if cursor > subscription.ack do
-                    Process.send(self(), {:next, subscription.pid}, [])
-                end
                 Map.put(subscription, :ack, number)
             end)
             %Broker{store| subscriptions: subscriptions}
+            |> sched_next()
         end
     end
 
-    defp push_next(%Broker{}, %{ack: ack}=sub) do
-        event = 
-            Repo.events()
-            |> Enum.find(&(Map.get(&1, :number) > ack))
+    def build_query(%Broker{streams: streams, topics: topics, subscriptions: subs}) do
+        %{syn: position} = 
+            Enum.max_by(subs, fn %{syn: syn} -> syn end, fn -> %{syn: 0} end) 
 
-        if event do
-            push_event(sub, event)
-        else
-            sub
-        end
+        build_query(streams, topics)
+        |> Store.query_events_from(position)
+        |> Store.query_events_sort(:asc)
     end
 
-    def subscribe(nil, opts) when is_list(opts) do
-        GenServer.call(__MODULE__, {:subscribe, opts}, 5000)
-    end
-
-    def subscribe(handle, opts) when is_list(opts) and is_atom(handle) do
-        subscribe(Atom.to_string(handle), opts)
-    end
-
-    def subscribe(handle, opts) when is_list(opts) and is_binary(handle) do
-        GenServer.call(__MODULE__, {:subscribe, opts}, 5000)
-    end
-
-    def unsubscribe() do
-        GenServer.call(__MODULE__, :unsubscribe, 5000)
-    end
-
-    def subscription(_opts \\ []) do
-        GenServer.call(__MODULE__, :subscription, 5000)
-    end
-
-    def acknowledge(number) do
-        GenServer.cast(__MODULE__, {:ack, self(), number})
-    end
-
-    def build_query(%Broker{streams: [], topics: []}) do
+    def build_query([], []) do
         Store.query_event_topics([])
     end
 
-    def build_query(%Broker{streams: [], topics: topics}) do
+    def build_query([], topics) do
         Store.query_event_topics(topics)
     end
 
-    def build_query(%Broker{streams: streams, topics: []}) do
+    def build_query(streams, []) do
         Store.query_event_streams(streams)
     end
 
-    def build_query(%Broker{streams: streams, topics: topics}) do
+    def build_query(streams, topics) do
         Store.query_event_streams(streams)
         |> Store.query_event_topics(topics)
     end
@@ -308,9 +290,100 @@ defmodule Testament.Subscription.Broker do
         Enum.reduce(subscriptions, {[],[]}, fn 
             %{stream: stream, topics: topic}, {topics, streams} -> 
                 topics = Enum.uniq(topics ++ topic)
-                streams = Enum.uniq(streams ++ stream)
+                streams = Enum.uniq(streams ++ List.wrap(stream))
                 {topics, streams}
         end)
     end
+
+    def start_worker_stream(%Broker{worker: worker}=broker) do
+        bpid = self()
+
+        if not(is_nil(worker)) do
+            send(worker.pid, :stop)
+        end
+
+        query = build_query(broker)
+        stream = Repo.stream(query)
+
+        worker =
+            Task.async(fn -> 
+                {:ok, resp} =
+                    Repo.transaction(fn -> 
+                        Enum.find_value(stream, :finished, fn event -> 
+                            send(bpid, {:broadcast, event})
+
+                            receive do
+                                :continue ->
+                                    false
+                                    
+                                :stop ->
+                                    {:stoped, event.number}
+                            end
+                        end)
+                    end)
+                resp
+            end)
+        %Broker{broker| worker: worker}
+    end
+
+    def sched_next(%Broker{}=broker) do
+        %Broker{worker: worker}=broker
+        if not(is_nil(worker)) do
+            send(worker.pid, :continue)
+        end
+        broker
+    end
+
+    def subscribe(nil, opts) when is_list(opts) do
+        handle_from_pid()
+        |> Supervisor.prepare_broker(true)
+        |> GenServer.call({:subscribe, opts}, 5000)
+    end
+
+    def subscribe(handle, opts) when is_list(opts) and is_atom(handle) do
+        subscribe(Atom.to_string(handle), opts)
+    end
+
+    def subscribe(handle, opts) when is_list(opts) and is_binary(handle) do
+        handle
+        |> Supervisor.prepare_broker(false)
+        |> GenServer.call({:subscribe, opts}, 5000)
+    end
+
+    def unsubscribe() do
+        handle_from_pid()
+        |> unsubscribe()
+    end
+
+    def unsubscribe(handle) do
+        broker = Supervisor.broker(handle)
+        with {:via, _reg, _iden} <- broker do
+            GenServer.call(broker, :unsubscribe, 5000)
+        end
+    end
+
+    def subscription() do
+        handle_from_pid()
+        |> subscription()
+    end
+
+    def subscription(handle) when is_binary(handle) do
+        broker = Supervisor.broker(handle)
+        with {:via, _reg, _iden} <- broker do
+            GenServer.call(broker, :subscription, 5000)
+        end
+    end
+
+    def acknowledge(id, number) do
+        with {:via, reg, iden} <- Supervisor.broker(id) do
+            GenServer.cast({:via, reg, iden}, {:ack, self(), number})
+        end
+    end
+
+    def handle_from_pid do
+        :crypto.hash(:md5 , inspect(self())) 
+        |> Base.encode16()
+    end
+
 end
 

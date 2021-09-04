@@ -50,4 +50,14 @@ defmodule Testament.Subscription.Supervisor do
         end
     end
 
+    def broker(id) do
+        case Registry.lookup(@registry, id) do
+            [{_pid, type}] ->
+                via_tuple(id, type)
+
+            [] ->
+                false
+        end
+    end
+
 end

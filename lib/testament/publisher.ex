@@ -21,6 +21,11 @@ defmodule Testament.Publisher do
     end
 
     @impl true
+    def handle_call(:index, _from, publisher) do
+        {:reply, publisher.index, publisher}
+    end
+
+    @impl true
     def handle_call({:publish, staged}, _from, publisher) do
         # { nstreams, ustreams, events }
         initial = {[], [], []}
@@ -66,6 +71,9 @@ defmodule Testament.Publisher do
         {:reply, events, publisher}
     end
 
+    def index() do
+        GenServer.call(__MODULE__, :index)
+    end
 
     def publish(%Stage{}=stage) do
         List.wrap(stage)

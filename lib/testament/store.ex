@@ -12,6 +12,11 @@ defmodule Testament.Store do
         Repo.one(query)
     end
 
+    def get_event(number) do
+        Event.query(number: number)
+        |> Repo.one()
+    end
+
     def update_handle(id, position) do
         res =
             %Handle{id: id, position: position}
@@ -166,6 +171,16 @@ defmodule Testament.Store do
     def query_events_from(query, number) when is_integer(number) do
         from [event: event] in query,  
         where: event.number > ^number
+    end
+
+    def query_events_sort(:asc) do
+        from [event: event] in query,  
+        order_by: [asc: event.number]
+    end
+
+    def query_events_sort(:desc) do
+        from [event: event] in query,  
+        order_by: [desc: event.number]
     end
 
 end
