@@ -8,7 +8,7 @@ defmodule Testament.Repo.Migrations.CreateEvents do
             add :type,              :string
             add :topic,             :string
             add :position,          :integer
-            add :stream_id,         :uuid
+            add :stream,            :string
             add :data,              :binary
             add :causation_id,      :string
             add :correlation_id,    :string

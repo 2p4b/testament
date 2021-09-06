@@ -4,12 +4,22 @@ defmodule Testament.Store do
     alias Testament.Repo
     alias Testament.Store.Event
     alias Testament.Store.Handle
-    alias Testament.Store.Stream
     alias Testament.Store.Snapshot
 
     def events_count() do
         query = from event in Event, select: count() 
         Repo.one(query)
+    end
+
+    def index() do
+        index =
+            from(e in Event, select: max(e.number))
+            |> Repo.one()
+        if is_nil(index) do
+            0
+        else
+            index
+        end
     end
 
     def get_event(number) do
@@ -52,10 +62,6 @@ defmodule Testament.Store do
         |> Enum.map(&Event.to_stream_event/1)
     end
 
-    def get_stream({type, id}) do
-        Stream.query([id: id, type: type])
-        |> Repo.one()
-    end
 
     def get_or_create_handle(id) do
         handle =
@@ -74,29 +80,18 @@ defmodule Testament.Store do
         create_stream(%{type: type, id: id})
     end
 
-    def create_stream(attrs) when is_map(attrs) do
-        attrs = 
-            if Map.has_key?(attrs, :uuid) do
-                attrs
-            else
-                Map.put(attrs, :uuid, Ecto.UUID.generate())
-            end
-        %Stream{}
-        |> Stream.changeset(attrs)
-        |> Repo.insert()
-    end
-
     def create_handle(id, position \\ 0) do
         %Handle{}
         |> Handle.changeset(%{id: id, position: position})
         |> Repo.insert()
     end
 
-    def update_stream_position(%Stream{}=stream, position) 
-    when is_integer(position) do
-        stream
-        |> Stream.changeset(%{position: position})
-        |> Repo.update()
+    def stream_position(stream) do
+        query =
+            from [event: event] in Event.query([stream: stream]),
+            select: max(event.position)
+
+        Repo.one(query)
     end
 
     def update_handle_position(%Handle{}=handle, position) 
@@ -145,23 +140,15 @@ defmodule Testament.Store do
         query_event_streams(Event.query(), streams)
     end
 
-    def query_event_streams(query, [{type, id} | streams]) do
-        sub_query =
-            from [stream: stream] in Stream.query(),  
-            where: [type: ^type, id: ^id]
+    def query_event_streams(query, [stream | streams]) do
+        root =
+            from [event: event] in query,  
+            where: [event: ^stream]
 
-        sub_query =
-            Enum.reduce(streams, sub_query, fn {type, id}, query -> 
-                from [stream: stream] in query,  
-                or_where: [type: ^type, id: ^id]
-            end) 
-
-        sub_query =
-            from [stream: stream] in sub_query,
-            select: stream.uuid
-
-        from [event: event] in query,  
-        where: event.stream_id in subquery(sub_query)
+        Enum.reduce(streams, root, fn stream, query -> 
+            from [event: event] in query,  
+            or_where: [stream: ^stream]
+        end) 
     end
 
     def query_events_from(number) when is_integer(number) do
@@ -173,12 +160,16 @@ defmodule Testament.Store do
         where: event.number > ^number
     end
 
-    def query_events_sort(:asc) do
+    def query_events_sort(order) when is_atom(order) do
+        query_events_sort(Event.query(), order)
+    end
+
+    def query_events_sort(query, :asc) do
         from [event: event] in query,  
         order_by: [asc: event.number]
     end
 
-    def query_events_sort(:desc) do
+    def query_events_sort(query, :desc) do
         from [event: event] in query,  
         order_by: [desc: event.number]
     end

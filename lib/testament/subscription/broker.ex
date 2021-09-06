@@ -17,7 +17,6 @@ defmodule Testament.Subscription.Broker do
         buffer: [],
         handle: nil,
         position: 0,
-        anonymous: true,
         subscriptions: [],
         topics: [],
         streams: [],
@@ -34,27 +33,15 @@ defmodule Testament.Subscription.Broker do
     @impl true
     def init(opts) do
         id = Keyword.get(opts, :id)
-        anonymous = 
-            case Keyword.get(opts, :name, __MODULE__) do
-                {:via, _, {_, _id, anonymous}} ->
-                    anonymous
-
-                _ -> 
-                    false
-            end
 
         handle = 
-            if anonymous do
-                %Handle{id: id, position: 0}
-            else
-                case Store.get_handle(id) do
-                    %Handle{}=handle -> 
-                        handle
-                    nil ->
-                        %Handle{id: id, position: 0}
-                end
+            case Store.get_handle(id) do
+                %Handle{}=handle -> 
+                    handle
+                nil ->
+                    %Handle{id: id, position: 0}
             end
-        {:ok, struct(__MODULE__, id: id, handle: handle, anonymous: anonymous)}
+        {:ok, struct(__MODULE__, id: id, handle: handle)}
     end
 
     @impl true
@@ -64,23 +51,20 @@ defmodule Testament.Subscription.Broker do
 
     @impl true
     def handle_call(:subscription, {pid, _ref}, %Broker{subscriptions: subs}=store) do
-        subscription = Enum.find(subs, &(Map.get(&1, :pid) == pid))
+        subscription = Enum.find(subs, &(Map.get(&1, :id) == pid))
         {:reply, subscription, store} 
     end
 
     @impl true
     def handle_call({:subscribe, opts}, {pid, _ref}=from, %Broker{}=store) do
         %Broker{subscriptions: subscriptions} = store
-        subscription = Enum.find(subscriptions, &(Map.get(&1, :pid) == pid))
+        subscription = Enum.find(subscriptions, &(Map.get(&1, :id) == pid))
 
         if is_nil(subscription) do
             subscription = create_subscription(store, pid, opts)
             GenServer.reply(from, {:ok, subscription})
 
-            subscriptions =
-                subscription
-                |> List.wrap()
-                |> Enum.concat(subscriptions)
+            subscriptions = subscriptions ++ List.wrap(subscription)
 
             {topics, streams} = collect_topics_and_streams(subscriptions)
 
@@ -108,6 +92,7 @@ defmodule Testament.Subscription.Broker do
 
     @impl true
     def handle_info({:broadcast, %{number: number}=event}, %Broker{}=broker) do
+
         %Broker{subscriptions: subscriptions} = broker
         index = Enum.find_index(subscriptions, fn sub -> 
             handle?(sub, event)
@@ -121,57 +106,68 @@ defmodule Testament.Subscription.Broker do
             [BROKER] published #{inspect(event.type)}
             """
             Logger.info(info)
-            subscription = 
-                Enum.at(subscriptions, index)
-                |> Map.put(:syn, number)
-            send(subscription.pid, event)
-            subs = List.update_at(subscriptions, index, subscription)
+            subs = List.update_at(subscriptions, index, fn sub -> 
+                send(sub.id, event)
+                Map.put(sub, :syn, number)
+            end)
             {:noreply, %Broker{broker | subscriptions: subs}}
         end
     end
 
     @impl true
-    def handle_info({worker_ref, :finished}, %Broker{}=broker) do
-        fallen = 
-            build_query(broker) 
-            |> Repo.all()
-            |> Enum.map(&Event.to_stream_event/1)
-                
-        Testament.listern("event")
-        {:noreply, %Broker{broker | buffer: fallen}}
+    def handle_info(%Event{}=event, %Broker{buffer: buffer}=broker) do
+        buffer = buffer ++ List.wrap(event)
+        broker = %Broker{broker | buffer: buffer}
+        {:noreply, sched_next(broker)}
     end
 
     @impl true
-    def handle_info({:DOWN, ref, :process, _pid, _status}, %Broker{}=broker) do
-        IO.inspect(ref, label: "down")
+    def handle_info({_worker_ref, :finished}, %Broker{}=broker) do
+        fallen = 
+            build_query(broker) 
+            |> Repo.all()
+            |> Enum.map(&Store.Event.to_stream_event/1)
+                
+        broker = %Broker{broker | buffer: fallen, worker: nil}
+        Testament.listern_event()
+        {:noreply, broker |> sched_next() }
+    end
+
+    @impl true
+    def handle_info({_worker_ref, {:stoped, number}}, %Broker{}=broker) do
         {:noreply, broker}
     end
 
     @impl true
-    def handle_cast({:ack, pid, number}, %Broker{}=broker) do
-        %Broker{handle: handle, anonymous: anonymous}=broker
+    def handle_info({:DOWN, _ref, :process, _pid, _status}, %Broker{}=broker) do
+        {:noreply, broker}
+    end
+
+    @impl true
+    def handle_call({:ack, pid, number}, from, %Broker{}=broker) do
+
+        %Broker{handle: handle}=broker
         %{position: position} = handle
 
-        store = handle_ack(broker, pid, number)
+        broker = handle_ack(broker, pid, number)
 
-        if anonymous do
-            {:noreply, broker}
-        else
-            %{subscriptions: subs} = broker
-
-            %{ack: ack} = Enum.max_by(subs, &(Map.get(&1, :ack)), fn -> 
-                %{ack: position} 
+        subscription = 
+            broker
+            |> Map.get(:subscriptions)
+            |> Enum.max_by(&(Map.get(&1, :ack)), fn -> 
+                %{ack: position, tack: false, id: pid} 
             end)
 
-            if ack > position do
-                {:ok, handle} =
-                    Handle.changeset(handle, %{position: ack})
-                    |> Repo.insert_or_update()
+        %{ack: ack, track: track, id: id} = subscription
 
-                {:noreply, %Broker{broker | handle: handle}}
-            else
-                {:noreply, store}
-            end
+        if track and (ack > position) and (id == pid) do
+            {:ok, handle} =
+                Handle.changeset(handle, %{position: ack})
+                |> Repo.insert_or_update()
+
+            {:reply, number, %Broker{broker | handle: handle}}
+        else
+            {:reply, number,  broker}
         end
     end
 
@@ -236,26 +232,33 @@ defmodule Testament.Subscription.Broker do
         from = Keyword.get(opts, :from, handle.position)
         topics = Keyword.get(opts, :topics, [])
         stream = Keyword.get(opts, :stream, nil)
+        track = Keyword.get(opts, :track, true)
         %{
-            pid: pid,
+            id: pid,
             ack: from,
             syn: from,
             from: from,
+            track: track,
             stream: stream,
             topics: topics,
+            handle: handle.id,
         }
     end
 
-    defp handle_ack(%Broker{}=store, pid, number) do
-        %Broker{subscriptions: subscriptions} = store
-        index = Enum.find_index(subscriptions, &(Map.get(&1, :pid) == pid and Map.get(&1, :syn) == number))
+    defp handle_ack(%Broker{}=broker, pid, number) do
+        %Broker{subscriptions: subscriptions} = broker
+        ack_sub = &(Map.get(&1, :id) == pid and Map.get(&1, :syn) == number)
+        index = Enum.find_index(subscriptions, ack_sub)
+
         if is_nil(index) do
-            store
+            broker
         else
-            subscriptions = List.update_at(subscriptions, index, fn subscription -> 
-                Map.put(subscription, :ack, number)
-            end)
-            %Broker{store| subscriptions: subscriptions}
+            subscriptions = 
+                List.update_at(subscriptions, index, fn subscription -> 
+                    Map.put(subscription, :ack, number)
+                end)
+
+            %Broker{broker | subscriptions: subscriptions}
             |> sched_next()
         end
     end
@@ -264,8 +267,7 @@ defmodule Testament.Subscription.Broker do
         %{syn: position} = 
             Enum.max_by(subs, fn %{syn: syn} -> syn end, fn -> %{syn: 0} end) 
 
-        build_query(streams, topics)
-        |> Store.query_events_from(position)
+        Store.query_events_from(position)
         |> Store.query_events_sort(:asc)
     end
 
@@ -303,14 +305,15 @@ defmodule Testament.Subscription.Broker do
         end
 
         query = build_query(broker)
-        stream = Repo.stream(query)
+        stream = Repo.stream(query, max_rows: 1)
 
         worker =
             Task.async(fn -> 
                 {:ok, resp} =
                     Repo.transaction(fn -> 
                         Enum.find_value(stream, :finished, fn event -> 
-                            send(bpid, {:broadcast, event})
+                            stream_event = Store.Event.to_stream_event(event)
+                            send(bpid, {:broadcast, stream_event})
 
                             receive do
                                 :continue ->
@@ -320,13 +323,13 @@ defmodule Testament.Subscription.Broker do
                                     {:stoped, event.number}
                             end
                         end)
-                    end)
+                    end, [timeout: :infinity])
                 resp
             end)
         %Broker{broker| worker: worker}
     end
 
-    def sched_next(%Broker{}=broker) do
+    def sched_next(%Broker{buffer: []}=broker) do
         %Broker{worker: worker}=broker
         if not(is_nil(worker)) do
             send(worker.pid, :continue)
@@ -334,10 +337,21 @@ defmodule Testament.Subscription.Broker do
         broker
     end
 
-    def subscribe(nil, opts) when is_list(opts) do
-        handle_from_pid()
-        |> Supervisor.prepare_broker(true)
-        |> GenServer.call({:subscribe, opts}, 5000)
+    def sched_next(%Broker{buffer: [event | buffer], subscriptions: subs}=broker) do
+
+        nil_max = fn -> nil end
+        max_sub = Enum.max_by(subs, &(Map.get(&1, :syn)), nil_max)
+
+        if is_nil(max_sub) do
+            broker
+        else
+            if max_sub.ack == max_sub.syn do
+                send(self(), {:broadcast, event})
+                %Broker{broker | buffer: buffer}
+            else
+                broker
+            end
+        end
     end
 
     def subscribe(handle, opts) when is_list(opts) and is_atom(handle) do
@@ -345,14 +359,10 @@ defmodule Testament.Subscription.Broker do
     end
 
     def subscribe(handle, opts) when is_list(opts) and is_binary(handle) do
+        track = Keyword.get(opts, :track, true)
         handle
-        |> Supervisor.prepare_broker(false)
+        |> Supervisor.prepare_broker(track)
         |> GenServer.call({:subscribe, opts}, 5000)
-    end
-
-    def unsubscribe() do
-        handle_from_pid()
-        |> unsubscribe()
     end
 
     def unsubscribe(handle) do
@@ -362,11 +372,6 @@ defmodule Testament.Subscription.Broker do
         end
     end
 
-    def subscription() do
-        handle_from_pid()
-        |> subscription()
-    end
-
     def subscription(handle) when is_binary(handle) do
         broker = Supervisor.broker(handle)
         with {:via, _reg, _iden} <- broker do
@@ -374,15 +379,11 @@ defmodule Testament.Subscription.Broker do
         end
     end
 
-    def acknowledge(id, number) do
-        with {:via, reg, iden} <- Supervisor.broker(id) do
-            GenServer.cast({:via, reg, iden}, {:ack, self(), number})
+    def acknowledge(handle, number) do
+        broker = Supervisor.broker(handle)
+        with {:via, _reg, _iden} <- broker do
+            GenServer.call(broker, {:ack, self(), number})
         end
-    end
-
-    def handle_from_pid do
-        :crypto.hash(:md5 , inspect(self())) 
-        |> Base.encode16()
     end
 
 end

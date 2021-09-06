@@ -12,7 +12,7 @@ defmodule Testament.AtomType do
     def cast(_), do: :error
 
     def load(data) when is_binary(data) do
-        Signal.Helper.string_to_module(data)
+        {:ok, Signal.Helper.string_to_module(data)}
     end
 
     def dump(data) when is_atom(data) do

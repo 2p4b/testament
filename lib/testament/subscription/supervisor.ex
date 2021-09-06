@@ -17,15 +17,15 @@ defmodule Testament.Subscription.Supervisor do
         DynamicSupervisor.start_child(__MODULE__, {Testament.Subscription.Broker, args})
     end
 
-    def prepare_broker(id, anonymous \\ false) when is_binary(id) do
+    def prepare_broker(id, track \\ false) when is_binary(id) do
         case Registry.lookup(@registry, id) do
             [{_pid, _type}] ->
-                via_tuple(id, anonymous)            
+                via_tuple(id, track)            
 
             [] ->
-                child_args(id, via_tuple(id, anonymous)) 
+                child_args(id, via_tuple(id, track)) 
                 |> start_child()
-                prepare_broker(id, anonymous)
+                prepare_broker(id, track)
         end
     end
 
@@ -36,8 +36,8 @@ defmodule Testament.Subscription.Supervisor do
         ] 
     end
 
-    defp via_tuple(id, anonymous) when is_binary(id) do
-        {:via, Registry, {@registry, id, anonymous}}
+    defp via_tuple(id, track) when is_binary(id) do
+        {:via, Registry, {@registry, id, track}}
     end
 
     def stop_child(id) when is_binary(id) do

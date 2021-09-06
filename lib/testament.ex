@@ -2,7 +2,6 @@ defmodule Testament do
 
     alias Phoenix.PubSub
     alias Testament.Store
-    alias Testament.Recorder
     alias Testament.Publisher
     alias Testament.Subscription.Broker
 
@@ -20,11 +19,11 @@ defmodule Testament do
     end
 
     def publish(staged, _opts \\ []) do
-        GenServer.call(Recorder, {:publish, staged})
+        Publisher.publish(staged)
     end
 
-    def acknowledge(number, _opts \\ []) do
-        number
+    def acknowledge(handle, number, _opts \\ []) do
+        Broker.acknowledge(handle, number)
     end
 
     def index(_opts) do
@@ -53,34 +52,28 @@ defmodule Testament do
         PubSub.broadcast(:testament, topic, event)
     end
 
-    def subscribe(opts) when is_list(opts) do
-        Broker.subscribe(nil, opts)
+    def listern_event() do
+        PubSub.subscribe(:testament, "events")
     end
 
-    def subscribe(handle) when is_binary(handle) do
-        subscribe(handle, [])
+    def broadcast_event(event) do
+        PubSub.broadcast(:testament, "events", event)
     end
 
     def subscribe(handle, opts) when is_binary(handle) and is_list(opts) do
         Broker.subscribe(handle, opts)
     end
 
-    def subscription(opts \\ []) do
-        Broker.subscription(opts)
+    def subscription(handle, _opts \\ []) do
+        Broker.subscription(handle)
     end
 
-    def unsubscribe(opts \\ []) do
-        Broker.unsubscribe(opts)
+    def unsubscribe(handle, _opts \\ []) do
+        Broker.unsubscribe(handle)
     end
 
     def stream_position(stream, _opts\\[]) do
-        case Store.get_stream(stream) do
-            %{position: position} ->
-                position
-
-            nil ->
-                nil
-        end
+        Store.stream_position(stream)
     end
 
 end

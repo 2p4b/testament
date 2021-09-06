@@ -17,7 +17,8 @@ defmodule Testament.Publisher do
 
     @impl true
     def init(_opts) do
-        {:ok, struct(__MODULE__, [])}
+        index = Store.index()
+        {:ok, struct(__MODULE__, [index: index])}
     end
 
     @impl true
@@ -27,30 +28,19 @@ defmodule Testament.Publisher do
 
     @impl true
     def handle_call({:publish, staged}, _from, publisher) do
-        # { nstreams, ustreams, events }
-        initial = {[], [], []}
-        {nstreams, ustreams, events} = 
+        # { streams, events }
+        initial = {%{}, []}
+        {streams, events} = 
             staged
             |> Enum.map(&(Publisher.prepare_stage(publisher, &1)))
             |> Enum.reduce(initial, fn 
-                {stream, ev_attrs}, {nstreams, ustreams, events} -> 
-                    nstreams =
-                        if is_struct(stream) do
-                            nstreams
-                        else
-                            nstreams ++ List.wrap(stream)   
-                        end
-
-                    ustreams =
-                        if is_struct(stream) do
-                            ustreams ++ List.wrap(stream)
-                        else
-                            ustreams
-                        end
+                {stream, position, ev_attrs}, {streams, events} -> 
 
                     events = events ++ List.wrap(ev_attrs)
 
-                    {nstreams, ustreams, events}
+                    streams = Map.put(streams, stream, position)
+
+                    {streams, events}
             end)
 
         {index, events} = Publisher.number_events(publisher, events)
@@ -58,15 +48,12 @@ defmodule Testament.Publisher do
         preped_events = Publisher.prepare_event_attrs(events)
 
         Repo.transaction(fn -> 
-            Publisher.create_streams(nstreams)
-            Publisher.advance_streams(ustreams)
             Publisher.insert_events(preped_events)
         end)
 
         publisher =
             %Publisher{publisher | index: index}
-            |> Publisher.add_streams(nstreams)
-            |> Publisher.update_streams(ustreams)
+            |> Publisher.update_streams(streams)
 
         {:reply, events, publisher}
     end
@@ -89,16 +76,16 @@ defmodule Testament.Publisher do
         GenServer.call(__MODULE__, {:publish, staged})
         |> Enum.map(fn attrs -> 
             event = struct(Signal.Stream.Event, attrs)
-            Testament.broadcast("event", event)
+            Testament.broadcast_event(event)
             event
         end)
+        :ok
     end
 
     def prepare_stage(publisher, %Stage{}=stage) do
-        %{stream: stage_stream} =  stage
-        stream = get_stream(publisher, stage_stream)
+        %{stream: stream} =  stage
 
-        %{uuid: stream_id, position: position} = stream
+        position = get_stream_position(publisher, stream)
 
         %{events: events, version: version} = stage
 
@@ -115,17 +102,16 @@ defmodule Testament.Publisher do
                     position = position + 1
                     attrs = 
                         Map.from_struct(event)
-                        |> Map.put(:stream, stage_stream)
+                        |> Map.put(:stream, stream)
                         |> Map.put(:uuid, Ecto.UUID.generate())
                         |> Map.put(:position, position)
-                        |> Map.put(:stream_id, stream_id)
                         
                     {events ++ List.wrap(attrs), position}
             end)
 
         {events, ^version} = prepped 
 
-        {Map.put(stream, :position, version), events}
+        {stream, version, events}
     end
 
     def stage_event(event) when is_struct(event) do
@@ -134,7 +120,7 @@ defmodule Testament.Publisher do
             correlation_id: UUID.uuid4()
         ]
 
-        stream = Signal.Stream.stream(event)
+        {_, stream} = Signal.Stream.stream(event)
 
         events = 
             event
@@ -145,26 +131,18 @@ defmodule Testament.Publisher do
     end
 
 
-    def get_stream(%Publisher{streams: streams}, {type, id}) do
-        stream =
-            case Map.get(streams, {type, id}) do 
-                stream when is_struct(stream) ->
-                    stream
+    def get_stream_position(%Publisher{streams: streams}, id) do
+        position =
+            case Map.get(streams, id) do 
+                nil ->  Store.stream_position(id)
 
-                nil -> 
-                    Store.Stream.query([id: id, type: type])
-                    |> Repo.one()
+                position -> position
             end
 
-        if is_nil(stream) do
-            %{
-                id: id,
-                type: type,
-                uuid: Ecto.UUID.generate(),
-                position: 0,
-            }
+        if is_nil(position) do
+            0
         else
-            stream
+            position
         end
     end
 
@@ -188,31 +166,10 @@ defmodule Testament.Publisher do
         Repo.insert_all(Store.Event, event_attrs)
     end
 
-    def create_streams(stream_attrs) do
-        Repo.insert_all(Store.Stream, stream_attrs)
-    end
-
-    def advance_streams(streams) do
-        Enum.map(streams, fn stream -> 
-            %{id: id, position: position} = stream
-            Store.Stream.query(id: id)
-            |> Repo.update_all(set: [position: position])
-        end)
-    end
-
-    def add_streams(%Publisher{streams: streams}=publisher, new_streams) do
-        streams = Enum.reduce(new_streams, streams, fn stream, streams -> 
-            stream = struct(Store.Stream, stream)
-            Map.put(streams, {stream.type, stream.id}, stream) 
-        end)
-        %Publisher{publisher | streams: streams}
-    end
-
     def update_streams(%Publisher{streams: streams}=publisher, updated_streams) do
-        streams = Enum.reduce(updated_streams, streams, fn stream, streams -> 
-            Map.put(streams, {stream.type, stream.id}, stream) 
-        end)
-        %Publisher{publisher | streams: streams}
+        %Publisher{publisher | 
+            streams: Map.merge(streams, updated_streams)
+        }
     end
 
 end

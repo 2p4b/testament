@@ -12,7 +12,7 @@ defmodule Testament.DataType do
     def cast(_), do: :error
 
     def load(data) when is_binary(data) do
-        Serializer.deserialize(data)
+        {:ok, Serializer.deserialize(data)}
     end
 
     def dump(data) when is_map(data) do
