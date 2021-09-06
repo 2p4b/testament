@@ -8,12 +8,12 @@ defmodule Testament.Store.Event do
     alias Testament.Store.Stream
 
     @fields [
-        :uuid, :topic, :position, :number, :type,
+        :uuid, :topic, :position, :number, :type, :stream,
         :data, :causation_id, :correlation_id, :timestamp
     ]
 
     @required [
-        :topic, :position, :type, :number, 
+        :topic, :position, :type, :number, :stream,
         :data, :causation_id, :correlation_id, :timestamp
     ]
 

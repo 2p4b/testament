@@ -19,7 +19,7 @@ defmodule Testament.StoreTest do
 
             staged = Publisher.stage_event(event)
 
-            %{events: [event]} = staged
+            %{events: [event], stream: stream} = staged
 
             %{data: data, topic: topic, type: type} = event
 
@@ -28,28 +28,14 @@ defmodule Testament.StoreTest do
                 |> Map.put(:number, 9)
                 |> Map.put(:position, 0)
                 |> Map.put(:uuid, Ecto.UUID.generate())
-                |> Map.put(:stream_id, Ecto.UUID.generate())
+                |> Map.put(:stream, stream)
 
             {:ok, store_event} = Store.create_event(event_attrs)
 
             assert store_event.type == type
             assert store_event.data == data
             assert store_event.topic == topic
-        end
-
-        @tag :store
-        test "create stream" do
-            {:ok, stream} = Store.create_stream({Factory, "sample"})
-            assert stream.id == "sample"
-            assert stream.type == Factory
-        end
-
-        @tag :store
-        test "update stream position" do
-            {:ok, stream} = Store.create_stream({Stream, "sample"})
-            assert stream.position == 0
-            {:ok, stream} = Store.update_stream_position(stream, 4)
-            assert stream.position == 4
+            assert store_event.stream == stream
         end
 
         @tag :store
