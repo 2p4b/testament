@@ -6,6 +6,8 @@ defmodule Testament.Publisher do
 
     use GenServer
 
+    import Logger
+
     defstruct [ index: 0, streams: %{} ]
 
     @doc """
@@ -76,6 +78,14 @@ defmodule Testament.Publisher do
         GenServer.call(__MODULE__, {:publish, staged})
         |> Enum.map(fn attrs -> 
             event = struct(Signal.Stream.Event, attrs)
+            info = """
+
+            [PUBLISHER] Published #{event.type}
+            stream: #{event.stream}
+            number: #{event.number}
+            position: #{event.position}
+            """
+            Logger.info(info)
             Testament.broadcast_event(event)
             event
         end)

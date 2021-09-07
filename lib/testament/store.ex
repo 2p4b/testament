@@ -151,15 +151,9 @@ defmodule Testament.Store do
         query
     end
 
-    def query_event_topics(query, [topic | topics]) do
-        query =
-            from [event: event] in query,  
-            where: event.topic == ^topic
-
-        Enum.reduce(topics, query, fn topic, query -> 
-            from [event: event] in query,  
-            or_where: event.topic == ^topic
-        end) 
+    def query_event_topics(query, topics) do
+        from [event: event] in query,  
+        where: event.topic in ^topics
     end
 
     def query_event_streams([]) do
@@ -174,15 +168,9 @@ defmodule Testament.Store do
         query
     end
 
-    def query_event_streams(query, [stream | streams]) do
-        root =
-            from [event: event] in query,  
-            where: [stream: ^stream]
-
-        Enum.reduce(streams, root, fn stream, query -> 
-            from [event: event] in query,  
-            or_where: [stream: ^stream]
-        end) 
+    def query_event_streams(query, streams) do
+        from [event: event] in query,  
+        where: event.stream in ^streams
     end
 
     def query_events_from(number) when is_integer(number) do
