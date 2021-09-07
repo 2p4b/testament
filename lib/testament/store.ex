@@ -90,7 +90,6 @@ defmodule Testament.Store do
         query =
             from [event: event] in Event.query([stream: stream]),
             select: max(event.position)
-
         Repo.one(query)
     end
 
@@ -107,6 +106,33 @@ defmodule Testament.Store do
         |> Repo.insert()
     end
 
+    def snapshot(id, opts \\ []) do
+        version = Keyword.get(opts, :version, :max)
+        query = Snapshot.query([id: id])
+
+        query =
+            case version do
+                version when is_number(version) ->
+                    from [snapshot: snapshot] in query,
+                    where: snapshot.version == ^version
+
+                _ ->
+                    from [snapshot: snapshot] in query,
+                    order_by: [desc: snapshot.version]
+            end
+
+        query =
+            from [snapshot: snapshot] in query,
+            select: %Signal.Snapshot{
+                id: snapshot.id,
+                data: snapshot.data,
+                version: snapshot.version
+            }, 
+            limit: 1
+
+        Repo.one(query)
+    end
+
     def create_event(attrs) do
         %Event{}
         |> Event.changeset(attrs)
@@ -119,6 +145,10 @@ defmodule Testament.Store do
 
     def query_event_topics(topics) when is_list(topics) do
         query_event_topics(Event.query(), topics)
+    end
+
+    def query_event_topics(query, []) do
+        query
     end
 
     def query_event_topics(query, [topic | topics]) do
@@ -140,10 +170,14 @@ defmodule Testament.Store do
         query_event_streams(Event.query(), streams)
     end
 
+    def query_event_streams(query, []) do
+        query
+    end
+
     def query_event_streams(query, [stream | streams]) do
         root =
             from [event: event] in query,  
-            where: [event: ^stream]
+            where: [stream: ^stream]
 
         Enum.reduce(streams, root, fn stream, query -> 
             from [event: event] in query,  

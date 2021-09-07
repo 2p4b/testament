@@ -15,7 +15,7 @@ defmodule Testament do
     if it comes from the database, an external API or others.
     """
     def record(snapshot, _opts \\ []) do
-        snapshot
+        Store.create_snapshot(snapshot)
     end
 
     def publish(staged, _opts \\ []) do
@@ -40,8 +40,8 @@ defmodule Testament do
         end
     end
 
-    def snapshot(_id, _opts \\ []) do
-        nil
+    def snapshot(id, opts \\ []) do
+        Store.snapshot(id, opts)
     end
 
     def listern(topic) do

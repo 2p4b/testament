@@ -1,6 +1,8 @@
 defmodule Testament.Store.Snapshot do
-    use Ecto.Schema
+    use Testament.Schema, row: :snapshot
     import Ecto.Changeset
+
+    alias Testament.Repo
     alias Testament.DataType
 
     @fields [ :id, :data, :version]
@@ -20,5 +22,6 @@ defmodule Testament.Store.Snapshot do
         snapshot
         |> cast(attrs, @fields)
         |> validate_required(@required)
+        |> unsafe_validate_unique([:id, :version], Repo, message: "snapshot version must be unique")
     end
 end

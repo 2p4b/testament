@@ -91,6 +91,34 @@ defmodule Testament.Subscription.Broker do
     end
 
     @impl true
+    def handle_call({:ack, pid, number}, _from, %Broker{}=broker) do
+
+        %Broker{handle: handle}=broker
+        %{position: position} = handle
+
+        broker = handle_ack(broker, pid, number)
+
+        subscription = 
+            broker
+            |> Map.get(:subscriptions)
+            |> Enum.max_by(&(Map.get(&1, :ack)), fn -> 
+                %{ack: position, tack: false, id: pid} 
+            end)
+
+        %{ack: ack, track: track, id: id} = subscription
+
+        if track and (ack > position) and (id == pid) do
+            {:ok, handle} =
+                Handle.changeset(handle, %{position: ack})
+                |> Repo.insert_or_update()
+
+            {:reply, number, %Broker{broker | handle: handle}}
+        else
+            {:reply, number,  broker}
+        end
+    end
+
+    @impl true
     def handle_info({:broadcast, %{number: number}=event}, %Broker{}=broker) do
 
         %Broker{subscriptions: subscriptions} = broker
@@ -99,7 +127,7 @@ defmodule Testament.Subscription.Broker do
         end)
 
         if is_nil(index) do
-            {:noreply, broker}
+            {:noreply, sched_next(broker)}
         else
             info = """
 
@@ -134,7 +162,7 @@ defmodule Testament.Subscription.Broker do
     end
 
     @impl true
-    def handle_info({_worker_ref, {:stoped, number}}, %Broker{}=broker) do
+    def handle_info({_worker_ref, {:stoped, _number}}, %Broker{}=broker) do
         {:noreply, broker}
     end
 
@@ -143,33 +171,6 @@ defmodule Testament.Subscription.Broker do
         {:noreply, broker}
     end
 
-    @impl true
-    def handle_call({:ack, pid, number}, from, %Broker{}=broker) do
-
-        %Broker{handle: handle}=broker
-        %{position: position} = handle
-
-        broker = handle_ack(broker, pid, number)
-
-        subscription = 
-            broker
-            |> Map.get(:subscriptions)
-            |> Enum.max_by(&(Map.get(&1, :ack)), fn -> 
-                %{ack: position, tack: false, id: pid} 
-            end)
-
-        %{ack: ack, track: track, id: id} = subscription
-
-        if track and (ack > position) and (id == pid) do
-            {:ok, handle} =
-                Handle.changeset(handle, %{position: ack})
-                |> Repo.insert_or_update()
-
-            {:reply, number, %Broker{broker | handle: handle}}
-        else
-            {:reply, number,  broker}
-        end
-    end
 
     defp handle?(%{syn: syn, ack: ack}, _ev)
     when syn != ack do
@@ -186,28 +187,12 @@ defmodule Testament.Subscription.Broker do
         false
     end
 
-    defp handle?(%{stream: s_stream, topics: topics}, %{stream: e_stream}=event) do
+    defp handle?(%{stream: sstream}, %{stream: estream}) 
+    when not(is_nil(sstream)) and sstream != estream do
+        false
+    end
 
-        %{topic: topic} = event
-        {e_stream_type, _stream_id} = e_stream
-
-        valid_stream =
-            cond do
-                # All streams
-                is_nil(s_stream) ->
-                    true
-
-                # Same stream type 
-                is_atom(s_stream) ->
-                    s_stream == e_stream_type
-
-                # Same stream 
-                is_tuple(s_stream) ->
-                    e_stream == s_stream
-
-                true ->
-                    false
-            end
+    defp handle?(%{topics: topics}, %{topic: topic}) do
 
         valid_topic =
             if length(topics) == 0 do
@@ -220,7 +205,7 @@ defmodule Testament.Subscription.Broker do
                 end
             end
 
-        if valid_stream and valid_topic do
+        if valid_topic do
             true
         else
             false
@@ -268,6 +253,8 @@ defmodule Testament.Subscription.Broker do
             Enum.max_by(subs, fn %{syn: syn} -> syn end, fn -> %{syn: 0} end) 
 
         Store.query_events_from(position)
+        |> Store.query_event_streams(streams)
+        |> Store.query_event_topics(topics)
         |> Store.query_events_sort(:asc)
     end
 
@@ -305,7 +292,7 @@ defmodule Testament.Subscription.Broker do
         end
 
         query = build_query(broker)
-        stream = Repo.stream(query, max_rows: 1)
+        stream = Repo.stream(query, max_rows: 10)
 
         worker =
             Task.async(fn -> 
@@ -313,6 +300,7 @@ defmodule Testament.Subscription.Broker do
                     Repo.transaction(fn -> 
                         Enum.find_value(stream, :finished, fn event -> 
                             stream_event = Store.Event.to_stream_event(event)
+
                             send(bpid, {:broadcast, stream_event})
 
                             receive do
