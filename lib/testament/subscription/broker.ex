@@ -13,7 +13,7 @@ defmodule Testament.Subscription.Broker do
     defstruct [
         id: nil,
         worker: nil,
-        ready: false,
+        ready: true,
         cursor: 0, 
         buffer: [],
         handle: nil,
@@ -139,7 +139,6 @@ defmodule Testament.Subscription.Broker do
             subs = List.update_at(subscriptions, index, fn sub -> 
                 send(sub.id, event)
                 info = """
-
                 [BROKER] #{broker.handle.id}
                 published: #{event.type}
                 number: #{event.number}
@@ -162,7 +161,6 @@ defmodule Testament.Subscription.Broker do
 
         unless Enum.empty?(broker.buffer) do
             info = """
-
             [BROKER] #{broker.handle.id}
             queued: #{event.type}
             number: #{event.number}
@@ -267,7 +265,6 @@ defmodule Testament.Subscription.Broker do
             subscriptions = 
                 List.update_at(subscriptions, index, fn subscription -> 
                     info = """
-
                     [BROKER] #{broker.handle.id}
                     acknowledged: #{number}
                     buffer: #{length(buffer)}
