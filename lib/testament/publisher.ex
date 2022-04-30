@@ -1,6 +1,7 @@
 defmodule Testament.Publisher do
     alias Testament.Repo
     alias Testament.Store
+    alias Signal.Transaction
     alias Testament.Publisher
     alias Signal.Events.Stage
 
@@ -29,8 +30,9 @@ defmodule Testament.Publisher do
     end
 
     @impl true
-    def handle_call({:publish, staged}, _from, publisher) do
+    def handle_call({:publish, %Transaction{}=transaction}, _from, publisher) do
         # { streams, events }
+        %Transaction{staged: staged, snapshots: snapshots} = transaction
         initial = {%{}, []}
         {streams, events} = 
             staged
@@ -49,8 +51,11 @@ defmodule Testament.Publisher do
 
         preped_events = Publisher.prepare_event_attrs(events)
 
+        preped_snapshots = Enum.map(snapshots, &(Map.from_struct(&1)))
+
         Repo.transaction(fn -> 
             Publisher.insert_events(preped_events)
+            Publisher.record_states(preped_snapshots)
         end)
 
         publisher =
@@ -69,13 +74,8 @@ defmodule Testament.Publisher do
         |> publish()
     end
 
-    def publish(event) when is_struct(event) do
-        stage_event(event)
-        |> publish()
-    end
-
-    def publish(staged) when is_list(staged) do
-        GenServer.call(__MODULE__, {:publish, staged})
+    def publish(%Transaction{}=transaction) do
+        GenServer.call(__MODULE__, {:publish, transaction})
         |> Enum.map(fn attrs -> 
             event = struct(Signal.Stream.Event, attrs)
             info = """
@@ -90,6 +90,11 @@ defmodule Testament.Publisher do
             event
         end)
         :ok
+    end
+
+    def publish(event) when is_struct(event) do
+        stage_event(event)
+        |> publish()
     end
 
     def prepare_stage(publisher, %Stage{}=stage) do
@@ -174,6 +179,10 @@ defmodule Testament.Publisher do
 
     def insert_events(event_attrs) do
         Repo.insert_all(Store.Event, event_attrs)
+    end
+
+    def record_states(snapshot_attrs) do
+        Repo.insert_all(Store.Snapshot, snapshot_attrs)
     end
 
     def update_streams(%Publisher{streams: streams}=publisher, updated_streams) do

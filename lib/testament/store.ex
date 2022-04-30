@@ -100,21 +100,46 @@ defmodule Testament.Store do
         |> Repo.update()
     end
 
-    def create_snapshot(%Signal.Snapshot{}=snapshot) do
-        %Snapshot{}
-        |> Snapshot.changeset(Map.from_struct(snapshot))
-        |> Repo.insert()
+    def record(%Signal.Snapshot{}=snapshot) do
+        %Signal.Snapshot{id: id, data: data, type: type, version: version}=snapshot
+        case snapshot({type, id}, [version: version]) do
+            nil ->
+                %Snapshot{}
+                |> Snapshot.changeset(Map.from_struct(snapshot))
+                |> Repo.insert()
+
+            snapshot ->
+                snapshot
+                |> Snapshot.changeset(%{data: data})
+                |> Repo.update()
+        end
     end
 
     def snapshot(id, opts \\ []) do
         version = Keyword.get(opts, :version, :max)
-        query = Snapshot.query([id: id])
+        query = 
+            case id do
+                {type, id} when is_atom(type) ->
+                    type = Signal.Helper.module_to_string(type)
+                    Snapshot.query([id: id, type: type])
+
+                {type, id} when is_binary(type) ->
+                    Snapshot.query([id: id, type: type])
+
+                _ ->
+                    from [snapshot: snapshot] in Snapshot.query([id: id]),
+                    where: is_nil(snapshot.type)
+            end
 
         query =
             case version do
                 version when is_number(version) ->
                     from [snapshot: snapshot] in query,
                     where: snapshot.version == ^version
+
+                :min ->
+                    from [snapshot: snapshot] in query,
+                    order_by: [asc: snapshot.version]
 
                 _ ->
                     from [snapshot: snapshot] in query,
@@ -125,6 +150,7 @@ defmodule Testament.Store do
             from [snapshot: snapshot] in query,
             select: %Signal.Snapshot{
                 id: snapshot.id,
+                type: snapshot.type,
                 data: snapshot.data,
                 version: snapshot.version
             }, 

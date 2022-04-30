@@ -2,6 +2,7 @@ defmodule Testament do
 
     alias Phoenix.PubSub
     alias Testament.Store
+    alias Signal.Transaction
     alias Testament.Publisher
     alias Testament.Subscription.Broker
 
@@ -15,11 +16,11 @@ defmodule Testament do
     if it comes from the database, an external API or others.
     """
     def record(snapshot, _opts \\ []) do
-        Store.create_snapshot(snapshot)
+        Store.record(snapshot)
     end
 
-    def publish(staged, _opts \\ []) do
-        Publisher.publish(staged)
+    def publish(%Transaction{}=transaction, _opts \\ []) do
+        Publisher.publish(transaction)
     end
 
     def acknowledge(handle, number, _opts \\ []) do

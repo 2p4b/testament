@@ -5,6 +5,7 @@ defmodule Testament.Repo.Migrations.CreateSnapshots do
         create table(:snapshots, primary_key: false) do
             add :uuid,          :uuid,      primary_key: true
             add :id,            :string
+            add :type,          :string
             add :version,       :integer
             add :data,          :binary
         end

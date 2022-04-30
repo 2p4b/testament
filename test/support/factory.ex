@@ -2,14 +2,7 @@ defmodule Testament.Factory do
     use ExMachina
 
     defmodule Aggregate do
-
-        use Signal.Type
-
-        schema do
-            field :id,      String.t,   default: "123"
-            field :value,   integer(),  default: 0
-        end
-
+        defstruct [id: "123", value: 0]
     end
 
     defmodule ValueUpdated do
@@ -17,9 +10,9 @@ defmodule Testament.Factory do
         use Signal.Event,
             stream: {Aggregate, :id}
 
-        schema do
-            field :id,      String.t,   default: "123"
-            field :value,   integer(),  default: 0
+        blueprint do
+            field :id,      :string,   default: "123"
+            field :value,   :number,  default: 0
         end
 
     end

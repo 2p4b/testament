@@ -5,7 +5,7 @@ defmodule Testament.Store.Snapshot do
     alias Testament.Repo
     alias Testament.DataType
 
-    @fields [ :id, :data, :version]
+    @fields [ :id, :data, :version, :type]
 
     @required [ :id, :data, :version]
 
@@ -13,6 +13,7 @@ defmodule Testament.Store.Snapshot do
 
     schema "snapshots" do
         field :id,          :string
+        field :type,        :string
         field :data,        DataType
         field :version,     :integer
     end
@@ -22,6 +23,6 @@ defmodule Testament.Store.Snapshot do
         snapshot
         |> cast(attrs, @fields)
         |> validate_required(@required)
-        |> unsafe_validate_unique([:id, :version], Repo, message: "snapshot version must be unique")
+        |> unsafe_validate_unique([:type, :id, :version], Repo, message: "snapshot version must be unique")
     end
 end
