@@ -236,7 +236,10 @@ defmodule Testament.Subscription.Broker do
     end
 
 
-    defp create_subscription(%Broker{handle: %{position: hpos}}, pid, opts) do
+    defp create_subscription(%Broker{}=broker, pid, opts) do
+
+        %Broker{handle: %{id: handle, position: hpos}} = broker
+
         start = 
             case {Keyword.get(opts, :start), hpos} do
                 {:current, 0} ->
@@ -261,7 +264,7 @@ defmodule Testament.Subscription.Broker do
             track: track,
             stream: stream,
             topics: topics,
-            handle: handle.id,
+            handle: handle,
         }
     end
 
