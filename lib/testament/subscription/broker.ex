@@ -69,9 +69,18 @@ defmodule Testament.Subscription.Broker do
 
             {topics, streams} = collect_topics_and_streams(subscriptions)
 
+            position = 
+                case subscriptions do
+                    [_sub] ->
+                        subscription.ack
+                    _ ->
+                        store.handle.position
+                end
+
             broker = %Broker{store | 
                 topics: topics, 
                 streams: streams,
+                handle: %Handle{store.handle | position: position},
                 subscriptions: subscriptions, 
             }
 
