@@ -48,7 +48,7 @@ defmodule Testament.StoreTest do
                 data: data, 
                 version: version
             }
-            {:ok, snapshot} = Store.create_snapshot(snapshot)
+            {:ok, snapshot} = Store.record(snapshot)
 
             assert snapshot.id == id
             assert snapshot.data == data

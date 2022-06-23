@@ -205,7 +205,7 @@ defmodule Testament.Subscription.Broker do
         false
     end
 
-    defp handle?(%{from: position}, %{number: number})
+    defp handle?(%{ack: position}, %{number: number})
     when is_integer(position) and position > number do
         false
     end
@@ -236,16 +236,28 @@ defmodule Testament.Subscription.Broker do
     end
 
 
-    defp create_subscription(%Broker{handle: handle}, pid, opts) do
-        from = Keyword.get(opts, :from, handle.position)
+    defp create_subscription(%Broker{handle: %{position: hpos}}, pid, opts) do
+        start = 
+            case {Keyword.get(opts, :start), hpos} do
+                {:current, 0} ->
+                    Store.index()
+
+                {:genesis, 0} ->
+                    0
+
+                {position, _} when is_number(position) ->
+                    position
+
+                {_, hpos} ->
+                    hpos
+            end
         topics = Keyword.get(opts, :topics, [])
         stream = Keyword.get(opts, :stream, nil)
         track = Keyword.get(opts, :track, true)
         %{
             id: pid,
-            ack: from,
-            syn: from,
-            from: from,
+            ack: start,
+            syn: start,
             track: track,
             stream: stream,
             topics: topics,

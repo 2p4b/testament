@@ -69,11 +69,6 @@ defmodule Testament.Publisher do
         GenServer.call(__MODULE__, :index)
     end
 
-    def publish(%Stage{}=stage) do
-        List.wrap(stage)
-        |> publish()
-    end
-
     def publish(%Transaction{}=transaction) do
         GenServer.call(__MODULE__, {:publish, transaction})
         |> Enum.map(fn attrs -> 
@@ -90,6 +85,11 @@ defmodule Testament.Publisher do
             event
         end)
         :ok
+    end
+
+    def publish(%Stage{}=staged) do
+        Transaction.new(staged)
+        |> publish()
     end
 
     def publish(event) when is_struct(event) do
