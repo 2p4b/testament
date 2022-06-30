@@ -100,25 +100,29 @@ defmodule Testament.Store do
         |> Repo.update()
     end
 
-    def record(%Signal.Snapshot{}=snapshot) do
-        %Signal.Snapshot{id: id, data: data, type: type, version: version}=snapshot
-        case snapshot({type, id}, [version: version]) do
+    def record(%Signal.Snapshot{}=snap) do
+        %Signal.Snapshot{id: id, data: data, type: type, version: version}=snap
+        case get_snapshot({type, id}, [version: version]) do
             nil ->
                 %Snapshot{}
-                |> Snapshot.changeset(Map.from_struct(snapshot))
+                |> Snapshot.changeset(Map.from_struct(snap))
                 |> Repo.insert()
 
-            snapshot ->
-                snapshot
+            snap ->
+                snap
                 |> Snapshot.changeset(%{data: data})
                 |> Repo.update()
         end
     end
 
-    def snapshot(id, opts \\ []) do
+    def get_snapshot(id, opts\\[]) do
         version = Keyword.get(opts, :version, :max)
         query = 
             case id do
+                {nil, id} ->
+                    from shot in Snapshot.query([id: id]),
+                    where: is_nil(shot.type)
+
                 {type, id} when is_atom(type) ->
                     type = Signal.Helper.module_to_string(type)
                     Snapshot.query([id: id, type: type])
@@ -127,36 +131,42 @@ defmodule Testament.Store do
                     Snapshot.query([id: id, type: type])
 
                 _ ->
-                    from [snapshot: snapshot] in Snapshot.query([id: id]),
-                    where: is_nil(snapshot.type)
+                    from [snapshot: shot] in Snapshot.query([id: id]),
+                    where: is_nil(shot.type)
             end
 
         query =
             case version do
                 version when is_number(version) ->
-                    from [snapshot: snapshot] in query,
-                    where: snapshot.version == ^version
+                    from [snapshot: shot] in query,
+                    where: shot.version == ^version
 
                 :min ->
-                    from [snapshot: snapshot] in query,
-                    order_by: [asc: snapshot.version]
+                    from [snapshot: shot] in query,
+                    order_by: [asc: shot.version]
 
                 _ ->
-                    from [snapshot: snapshot] in query,
-                    order_by: [desc: snapshot.version]
+                    from [snapshot: shot] in query,
+                    order_by: [desc: shot.version]
             end
 
-        query =
-            from [snapshot: snapshot] in query,
-            select: %Signal.Snapshot{
-                id: snapshot.id,
-                type: snapshot.type,
-                data: snapshot.data,
-                version: snapshot.version
-            }, 
-            limit: 1
 
-        Repo.one(query)
+        Repo.one(from [snapshot: shot] in query, limit: 1, select: shot)
+    end
+
+    def snapshot(id, opts \\ []) do
+        case get_snapshot(id, opts) do
+            nil ->
+                nil
+
+            shot ->
+                %Signal.Snapshot{
+                    id: shot.id,
+                    type: shot.type,
+                    data: shot.data,
+                    version: shot.version
+                }
+        end
     end
 
     def create_event(attrs) do
