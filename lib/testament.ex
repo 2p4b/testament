@@ -23,6 +23,10 @@ defmodule Testament do
         Publisher.publish(transaction)
     end
 
+    def purge(snap, opts \\ []) do
+        Store.purge(snap)
+    end
+
     def acknowledge(handle, number, _opts \\ []) do
         Broker.acknowledge(handle, number)
     end

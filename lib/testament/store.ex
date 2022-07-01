@@ -115,6 +115,41 @@ defmodule Testament.Store do
         end
     end
 
+    def purge({type, id}=iden, _opts \\ []) do
+
+        query = 
+            case iden do
+                {nil, id} ->
+                    from shot in Snapshot.query([id: id]),
+                    where: is_nil(shot.type)
+
+                {type, id} when is_atom(type) ->
+                    type = Signal.Helper.module_to_string(type)
+                    Snapshot.query([id: id, type: type])
+
+                {type, id} when is_binary(type) ->
+                    Snapshot.query([id: id, type: type])
+
+                _ ->
+                    from [snapshot: shot] in Snapshot.query([id: id]),
+                    where: is_nil(shot.type)
+            end
+
+        query =
+            from [snapshot: shot] in query,
+            order_by: [asc: shot.version]
+
+        stream  = Repo.stream(query)
+
+        Repo.transaction(fn -> 
+            stream
+            |> Stream.each(fn snap -> 
+                Repo.delete(snap)
+            end)
+        end)
+        :ok
+    end
+
     def get_snapshot(id, opts\\[]) do
         version = Keyword.get(opts, :version, :max)
         query = 
