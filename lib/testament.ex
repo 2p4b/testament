@@ -24,7 +24,7 @@ defmodule Testament do
     end
 
     def purge(snap, opts \\ []) do
-        Store.purge(snap)
+        Store.purge(snap, opts)
     end
 
     def acknowledge(handle, number, _opts \\ []) do

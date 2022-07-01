@@ -117,14 +117,14 @@ defmodule Testament.Store do
 
     def purge(id, opts \\ [])
     def purge(id, opts) when is_binary(id) do
-        purge({id, nil})
+        purge({id, nil}, opts)
     end
 
-    def purge({id, type}=iden, _opts) do
+    def purge(iden, _opts) do
 
         query = 
             case iden do
-                {id, type} ->
+                {id, nil} ->
                     from shot in Snapshot.query([id: id]),
                     where: is_nil(shot.type)
 
@@ -134,10 +134,6 @@ defmodule Testament.Store do
 
                 {id, type} when is_binary(type) ->
                     Snapshot.query([id: id, type: type])
-
-                _ ->
-                    from [snapshot: shot] in Snapshot.query([id: id]),
-                    where: is_nil(shot.type)
             end
 
         query =
@@ -157,7 +153,7 @@ defmodule Testament.Store do
 
     def get_snapshot(iden, opts\\[])
     def get_snapshot(iden, opts) when is_binary(iden) do
-        get_snapshot({iden, nil})
+        get_snapshot({iden, nil}, opts)
     end
 
     def get_snapshot(iden, opts) do
@@ -174,10 +170,6 @@ defmodule Testament.Store do
 
                 {id, type} when is_binary(type) ->
                     Snapshot.query([id: id, type: type])
-
-                _ ->
-                    from [snapshot: shot] in Snapshot.query([id: id]),
-                    where: is_nil(shot.type)
             end
 
         query =
@@ -201,9 +193,9 @@ defmodule Testament.Store do
 
     def snapshot(iden, opts \\ [])
     def snapshot(iden, opts) when is_binary(iden) do
-        get_snapshot({iden, nil})
+        snapshot({iden, nil}, opts)
     end
-    def snapshot(id, opts \\ []) do
+    def snapshot(id, opts) do
         case get_snapshot(id, opts) do
             nil ->
                 nil
