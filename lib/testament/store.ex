@@ -102,7 +102,7 @@ defmodule Testament.Store do
 
     def record(%Signal.Snapshot{}=snap) do
         %Signal.Snapshot{id: id, data: data, type: type, version: version}=snap
-        case get_snapshot({type, id}, [version: version]) do
+        case get_snapshot({id, type}, [version: version]) do
             nil ->
                 %Snapshot{}
                 |> Snapshot.changeset(Map.from_struct(snap))
@@ -115,19 +115,24 @@ defmodule Testament.Store do
         end
     end
 
-    def purge({type, id}=iden, _opts \\ []) do
+    def purge(id, opts \\ [])
+    def purge(id, opts) when is_binary(id) do
+        purge({id, nil})
+    end
+
+    def purge({id, type}=iden, _opts) do
 
         query = 
             case iden do
-                {nil, id} ->
+                {id, type} ->
                     from shot in Snapshot.query([id: id]),
                     where: is_nil(shot.type)
 
-                {type, id} when is_atom(type) ->
+                {id, type} when is_atom(type) ->
                     type = Signal.Helper.module_to_string(type)
                     Snapshot.query([id: id, type: type])
 
-                {type, id} when is_binary(type) ->
+                {id, type} when is_binary(type) ->
                     Snapshot.query([id: id, type: type])
 
                 _ ->
@@ -150,19 +155,24 @@ defmodule Testament.Store do
         :ok
     end
 
-    def get_snapshot(id, opts\\[]) do
+    def get_snapshot(iden, opts\\[])
+    def get_snapshot(iden, opts) when is_binary(iden) do
+        get_snapshot({iden, nil})
+    end
+
+    def get_snapshot(iden, opts) do
         version = Keyword.get(opts, :version, :max)
         query = 
-            case id do
-                {nil, id} ->
+            case iden do
+                {id, nil} ->
                     from shot in Snapshot.query([id: id]),
                     where: is_nil(shot.type)
 
-                {type, id} when is_atom(type) ->
+                {id, type} when is_atom(type) ->
                     type = Signal.Helper.module_to_string(type)
                     Snapshot.query([id: id, type: type])
 
-                {type, id} when is_binary(type) ->
+                {id, type} when is_binary(type) ->
                     Snapshot.query([id: id, type: type])
 
                 _ ->
@@ -189,6 +199,10 @@ defmodule Testament.Store do
         Repo.one(from [snapshot: shot] in query, limit: 1, select: shot)
     end
 
+    def snapshot(iden, opts \\ [])
+    def snapshot(iden, opts) when is_binary(iden) do
+        get_snapshot({iden, nil})
+    end
     def snapshot(id, opts \\ []) do
         case get_snapshot(id, opts) do
             nil ->
