@@ -101,18 +101,9 @@ defmodule Testament.Store do
     end
 
     def record(%Signal.Snapshot{}=snap) do
-        %Signal.Snapshot{id: id, data: data, type: type, version: version}=snap
-        case get_snapshot({id, type}, [version: version]) do
-            nil ->
-                %Snapshot{}
-                |> Snapshot.changeset(Map.from_struct(snap))
-                |> Repo.insert()
-
-            snap ->
-                snap
-                |> Snapshot.changeset(%{data: data})
-                |> Repo.update()
-        end
+        %Snapshot{}
+        |> Snapshot.changeset(Map.from_struct(snap))
+        |> Repo.insert()
     end
 
     def purge(id, opts \\ [])
