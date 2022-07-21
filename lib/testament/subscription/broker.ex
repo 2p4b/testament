@@ -182,6 +182,14 @@ defmodule Testament.Subscription.Broker do
     end
 
     @impl true
+    def handle_info(%Event{}, %Broker{}=broker) do
+        # recived event while worker still pulling events
+        # ignore event because event will be pulled
+        # eventually
+        {:noreply, broker}
+    end
+
+    @impl true
     def handle_info({_worker_ref, :finished}, %Broker{}=broker) do
         fallen = 
             build_query(broker) 

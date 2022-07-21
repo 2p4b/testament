@@ -53,7 +53,7 @@ defmodule Testament.Store do
             from event in Event, 
             where: event.topic in ^topics,
             where: event.number > ^position,
-            order_by: [asc: event.reduction],
+            order_by: [asc: event.number],
             select: event,
             limit: ^amount
 
@@ -135,7 +135,7 @@ defmodule Testament.Store do
 
         Repo.transaction(fn -> 
             stream
-            |> Stream.each(fn snap -> 
+            |> Enum.each(fn snap -> 
                 Repo.delete(snap)
             end)
         end)

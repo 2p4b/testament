@@ -6,6 +6,7 @@ defmodule Testament do
     alias Testament.Publisher
     alias Testament.Subscription.Broker
 
+    @app :testament
     @behaviour Signal.Store
 
     @moduledoc """
@@ -79,6 +80,26 @@ defmodule Testament do
 
     def stream_position(stream, _opts\\[]) do
         Store.stream_position(stream)
+    end
+
+    def install do
+        migrate()
+    end
+
+    def migrate do
+        for repo <- repos() do
+            {:ok, _, _} = 
+                repo
+                |> Ecto.Migrator.with_repo(fn repo -> 
+                    Ecto.Migrator.run(repo, :up, all: true)
+                end)
+        end
+        {:ok, __MODULE__}
+    end
+
+    defp repos do
+        Application.load(@app)
+        Application.fetch_env!(@app, :ecto_repos)
     end
 
 end
