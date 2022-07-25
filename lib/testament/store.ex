@@ -100,10 +100,13 @@ defmodule Testament.Store do
         |> Repo.update()
     end
 
-    def record(%Signal.Snapshot{}=snap) do
-        %Snapshot{}
+    def record(%Signal.Snapshot{uuid: uuid}=snap) do
+        case Repo.get(Snapshot, uuid) do
+            nil  -> %Snapshot{uuid: uuid}
+            snapshot ->  snapshot
+        end
         |> Snapshot.changeset(Map.from_struct(snap))
-        |> Repo.insert()
+        |> Repo.insert_or_update()
     end
 
     def purge(id, opts \\ [])
@@ -112,7 +115,6 @@ defmodule Testament.Store do
     end
 
     def purge(iden, _opts) do
-
         query = 
             case iden do
                 {id, nil} ->
@@ -140,6 +142,12 @@ defmodule Testament.Store do
             end)
         end)
         :ok
+    end
+
+    def forget(uuid, _opts \\ []) do
+        [uuid: uuid]
+        |> Snapshot.query()
+        |> Repo.delete()
     end
 
     def get_snapshot(iden, opts\\[])
@@ -194,6 +202,7 @@ defmodule Testament.Store do
             shot ->
                 %Signal.Snapshot{
                     id: shot.id,
+                    uuid: shot.uuid,
                     type: shot.type,
                     data: shot.data,
                     version: shot.version

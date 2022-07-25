@@ -1,7 +1,6 @@
 defmodule Testament.AtomType do
 
     use Ecto.Type
-    alias Testament.Serializer
 
     def type, do: :string
 

@@ -46,6 +46,10 @@ defmodule Testament do
         end
     end
 
+    def forget(id, opts \\ []) do
+        Store.forget(id, opts)
+    end
+
     def snapshot(id, opts \\ []) do
         Store.snapshot(id, opts)
     end

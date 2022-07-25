@@ -7,7 +7,7 @@ defmodule Testament.Publisher do
 
     use GenServer
 
-    import Logger
+    require Logger
 
     defstruct [ index: 0, streams: %{} ]
 

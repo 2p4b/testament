@@ -5,7 +5,6 @@ defmodule Testament.Store.Event do
 
     alias Testament.DataType
     alias Testament.Store.Event
-    alias Testament.Store.Stream
 
     @fields [
         :uuid, :topic, :position, :number, :type, :stream,
