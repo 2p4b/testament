@@ -51,12 +51,36 @@ defmodule Testament.Publisher do
 
         preped_events = Publisher.prepare_event_attrs(events)
 
-        preped_snapshots = Enum.map(snapshots, &(Map.from_struct(&1)))
+        snapshot_uuids = Enum.map(snapshots, &(Map.get(&1, :uuid)))
 
-        Repo.transaction(fn -> 
-            Publisher.insert_events(preped_events)
-            Publisher.record_states(preped_snapshots)
+        recorded =
+            cond do
+                Enum.empty?(snapshot_uuids) -> %{}
+
+                true ->
+                    Store.Snapshot.query(uuid: snapshot_uuids)
+                    |> Repo.all()
+                    |> Enum.reduce(%{}, fn snapshot, acc -> 
+                        Map.put(acc, snapshot.uuid, snapshot) 
+                    end)
+            end
+
+        preped_snapshots = Enum.map(snapshots, fn snapshot -> 
+            changeset =
+                case Map.get(recorded, snapshot.uuid) do
+                    nil  -> %Store.Snapshot{uuid: snapshot.uuid}
+                    snapshot ->  snapshot
+                end
+                |> Store.Snapshot.changeset(Map.from_struct(snapshot))
+            {snapshot.uuid, changeset}
         end)
+
+        transaction =
+            Ecto.Multi.new()
+            |> insert_events(preped_events)
+            |> record_states(preped_snapshots)
+
+        {:ok, _} = Repo.transaction(transaction)
 
         publisher =
             %Publisher{publisher | index: index}
@@ -75,8 +99,9 @@ defmodule Testament.Publisher do
             event = struct(Signal.Stream.Event, attrs)
             info = """
 
-            [PUBLISHER] Published #{event.type}
-            stream: #{event.stream}
+            [PUBLISHER] 
+            published #{event.topic}
+            stream: #{event.stream_id}
             number: #{event.number}
             position: #{event.position}
             """
@@ -98,9 +123,9 @@ defmodule Testament.Publisher do
     end
 
     def prepare_stage(publisher, %Stage{}=stage) do
-        %{stream: stream} =  stage
+        %{stream: {stream_id, _stream}} =  stage
 
-        position = get_stream_position(publisher, stream)
+        position = get_stream_position(publisher, stream_id)
 
         %{events: events, version: version} = stage
 
@@ -117,7 +142,7 @@ defmodule Testament.Publisher do
                     position = position + 1
                     attrs = 
                         Map.from_struct(event)
-                        |> Map.put(:stream, stream)
+                        |> Map.put(:stream_id, stream_id)
                         |> Map.put(:uuid, Ecto.UUID.generate())
                         |> Map.put(:position, position)
                         
@@ -126,7 +151,7 @@ defmodule Testament.Publisher do
 
         {events, ^version} = prepped 
 
-        {stream, version, events}
+        {stream_id, version, events}
     end
 
     def stage_event(event) when is_struct(event) do
@@ -135,7 +160,7 @@ defmodule Testament.Publisher do
             correlation_id: UUID.uuid4()
         ]
 
-        {_, stream} = Signal.Stream.stream(event)
+        stream = Signal.Stream.stream(event)
 
         events = 
             event
@@ -149,8 +174,7 @@ defmodule Testament.Publisher do
     def get_stream_position(%Publisher{streams: streams}, id) do
         position =
             case Map.get(streams, id) do 
-                nil ->  Store.stream_position(id)
-
+                nil -> Store.stream_position(id)
                 position -> position
             end
 
@@ -173,16 +197,26 @@ defmodule Testament.Publisher do
         base = %Store.Event{}
         Enum.map(event_attrs, fn attrs -> 
             Store.Event.changeset(base, attrs)
-            |> Map.get(:changes)
         end)
     end
 
-    def insert_events(event_attrs) do
-        Repo.insert_all(Store.Event, event_attrs)
+    def insert_events(transaction, []) do
+        transaction
+    end
+    def insert_events(transaction, [event_attrs | rest]) do
+        id = event_attrs.changes.number
+        transaction
+        |> Ecto.Multi.insert(id, event_attrs)
+        |> insert_events(rest)
     end
 
-    def record_states(snapshot_attrs) do
-        Repo.insert_all(Store.Snapshot, snapshot_attrs)
+    def record_states(transaction, []) do
+        transaction
+    end
+    def record_states(transaction, [{uuid, changeset} | rest]) do
+        transaction
+        |> Ecto.Multi.insert_or_update(uuid, changeset)
+        |> record_states(rest)
     end
 
     def update_streams(%Publisher{streams: streams}=publisher, updated_streams) do

@@ -14,14 +14,14 @@ defmodule Testament.StoreTest do
     describe "Store" do
 
         @tag :store
-        test "should have same type as published event" do
+        test "should have same topic as published event" do
             event = build(:value_updated)
 
             staged = Publisher.stage_event(event)
 
             %{events: [event], stream: stream} = staged
 
-            %{data: data, topic: topic, type: type} = event
+            %{payload: payload, topic: topic} = event
 
             event_attrs =
                 Map.from_struct(event)
@@ -32,8 +32,7 @@ defmodule Testament.StoreTest do
 
             {:ok, store_event} = Store.create_event(event_attrs)
 
-            assert store_event.type == type
-            assert store_event.data == data
+            assert store_event.payload == payload
             assert store_event.topic == topic
             assert store_event.stream == stream
         end
@@ -41,17 +40,13 @@ defmodule Testament.StoreTest do
         @tag :store
         test "create snapshot" do
             id = "snapid"
-            data = %{"hello" => "world"}
+            payload = %{"hello" => "world"}
             version = 1
-            snapshot = %Signal.Snapshot{
-                id: id, 
-                data: data, 
-                version: version
-            }
+            snapshot = Signal.Snapshot.new(id, payload, version: version)
             {:ok, snapshot} = Store.record(snapshot)
 
             assert snapshot.id == id
-            assert snapshot.data == data
+            assert snapshot.payload == payload
             assert snapshot.version == version
         end
 

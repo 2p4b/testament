@@ -3,17 +3,16 @@ defmodule Testament.Store.Event do
     use Testament.Schema, row: :event
     import Ecto.Changeset
 
-    alias Testament.DataType
     alias Testament.Store.Event
 
     @fields [
-        :uuid, :topic, :position, :number, :type, :stream,
-        :data, :causation_id, :correlation_id, :timestamp
+        :uuid, :topic, :position, :number, :stream_id,
+        :payload, :causation_id, :correlation_id, :timestamp
     ]
 
     @required [
-        :topic, :position, :type, :number, :stream,
-        :data, :causation_id, :correlation_id, :timestamp
+        :topic, :position, :number, :stream_id,
+        :payload, :causation_id, :correlation_id, :timestamp
     ]
 
     @foreign_key_type :binary_id
@@ -23,12 +22,11 @@ defmodule Testament.Store.Event do
     schema "events" do
         field :uuid,            Ecto.UUID,  autogenerate: true
         field :topic,           :string
-        field :type,            :string
-        field :data,            DataType
+        field :payload,         Testament.Repo.JSON
         field :position,        :integer
+        field :stream_id,       :string
         field :causation_id,    :string
         field :correlation_id,  :string
-        field :stream,          :string
         field :timestamp,       :utc_datetime_usec
     end
 
@@ -40,7 +38,9 @@ defmodule Testament.Store.Event do
     end
 
     def to_stream_event(%Event{}=event) do
-        attr = Map.from_struct(event) 
+        attr = 
+            event
+            |> Map.from_struct()
         struct(Signal.Stream.Event, attr)
     end
 

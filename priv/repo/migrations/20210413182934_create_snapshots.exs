@@ -7,7 +7,7 @@ defmodule Testament.Repo.Migrations.CreateSnapshots do
             add :id,            :string
             add :type,          :string
             add :version,       :integer
-            add :data,          :binary
+            add :payload,       :string
         end
     end
 end

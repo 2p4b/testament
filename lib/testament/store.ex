@@ -88,7 +88,7 @@ defmodule Testament.Store do
 
     def stream_position(stream) do
         query =
-            from [event: event] in Event.query([stream: stream]),
+            from [event: event] in Event.query([stream_id: stream]),
             select: max(event.position)
         Repo.one(query)
     end
@@ -204,7 +204,7 @@ defmodule Testament.Store do
                     id: shot.id,
                     uuid: shot.uuid,
                     type: shot.type,
-                    data: shot.data,
+                    payload: shot.payload,
                     version: shot.version
                 }
         end
@@ -247,7 +247,7 @@ defmodule Testament.Store do
 
     def query_event_streams(query, streams) do
         from [event: event] in query,  
-        where: event.stream in ^streams
+        where: event.stream_id in ^streams
     end
 
     def query_events_from(number) when is_integer(number) do

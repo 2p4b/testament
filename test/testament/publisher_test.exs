@@ -12,27 +12,18 @@ defmodule Testament.PublisherTest do
 
     describe "Publisher" do
 
-        @tag :publisher
-        test "should publish event struct" do
+        @tag :publish
+        test "event publish/1" do
             event = build(:value_updated)
             Publisher.publish(event)
         end
 
-        @tag :publisher
-        test "should publish stage struct" do
+        @tag :publish
+        test "staged publish/1" do
             stage = 
                 build(:value_updated)
                 |> Publisher.stage_event()
             Publisher.publish(stage)
-        end
-
-        @tag :publisher
-        test "should publish list stage" do
-            staged = 
-                build(:value_updated)
-                |> Publisher.stage_event()
-                |> List.wrap()
-            Publisher.publish(staged)
         end
 
     end

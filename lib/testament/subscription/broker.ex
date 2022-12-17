@@ -67,7 +67,7 @@ defmodule Testament.Subscription.Broker do
 
             subscriptions = subscriptions ++ List.wrap(subscription)
 
-            {topics, streams} = collect_topics_and_streams(subscriptions)
+            {streams, topics} = collect_streams_and_topics(subscriptions)
 
             position = 
                 case subscriptions do
@@ -149,7 +149,7 @@ defmodule Testament.Subscription.Broker do
                 send(sub.id, event)
                 info = """
                 [BROKER] #{broker.handle.id}
-                published: #{event.type}
+                published: #{event.topic}
                 number: #{event.number}
                 position: #{event.position}
                 """
@@ -171,7 +171,7 @@ defmodule Testament.Subscription.Broker do
         unless Enum.empty?(broker.buffer) do
             info = """
             [BROKER] #{broker.handle.id}
-            queued: #{event.type}
+            queued: #{event.topic}
             number: #{event.number}
             position: #{event.position}
             """
@@ -257,8 +257,8 @@ defmodule Testament.Subscription.Broker do
 
         %Broker{handle: %{id: handle, position: hpos}} = broker
 
-        start = 
-            case {Keyword.get(opts, :start), hpos} do
+        ack = 
+            case {Keyword.get(opts, :start, :current), hpos} do
                 {:current, 0} ->
                     Store.index()
 
@@ -271,17 +271,17 @@ defmodule Testament.Subscription.Broker do
                 {_, hpos} ->
                     hpos
             end
-        topics = Keyword.get(opts, :topics, [])
-        stream = Keyword.get(opts, :stream, nil)
         track = Keyword.get(opts, :track, true)
+        topics = Keyword.get(opts, :topics, []) |> List.wrap()
+        streams = Keyword.get(opts, :streams, []) |> List.wrap()
         %{
             id: pid,
-            ack: start,
-            syn: start,
+            ack: ack,
+            syn: ack,
             track: track,
-            stream: stream,
-            topics: topics,
             handle: handle,
+            topics: topics,
+            streams: streams,
         }
     end
 
@@ -343,17 +343,18 @@ defmodule Testament.Subscription.Broker do
         |> Store.query_event_topics(topics)
     end
 
-    def collect_topics_and_streams(subscriptions) do
+    def collect_streams_and_topics(subscriptions) do
         Enum.reduce(subscriptions, {[],[]}, fn 
-            %{stream: stream, topics: topic}, {topics, streams} -> 
-                topics = Enum.uniq(topics ++ topic)
-                streams = Enum.uniq(streams ++ List.wrap(stream))
-                {topics, streams}
+            %{streams: sub_streams, topics: sub_topics}, {streams, topics} -> 
+                stream_ids = for {stream_id, _type} <- sub_streams, do: stream_id
+                streams = Enum.uniq(streams ++ stream_ids)
+                topics = Enum.uniq(topics ++ sub_topics)
+                {streams, topics}
         end)
     end
 
     def start_worker_stream(%Broker{worker: worker}=broker) do
-        bpid = self()
+        broker_pid = self()
 
         if not(is_nil(worker)) do
             send(worker.pid, :stop)
@@ -369,7 +370,7 @@ defmodule Testament.Subscription.Broker do
                         Enum.find_value(stream, :finished, fn event -> 
                             stream_event = Store.Event.to_stream_event(event)
 
-                            send(bpid, {:push, stream_event})
+                            send(broker_pid, {:push, stream_event})
 
                             receive do
                                 :continue ->

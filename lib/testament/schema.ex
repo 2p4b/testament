@@ -25,8 +25,13 @@ defmodule Testament.Schema do
 
                 query =
                     Enum.reduce(filters, query, fn {column, value}, query -> 
-                        from [{^defined, row}] in query,
-                        where: field(row, ^column) == ^value
+                        if is_list(value) do
+                            from [{^defined, row}] in query,
+                            where: field(row, ^column) in ^value
+                        else
+                            from [{^defined, row}] in query,
+                            where: field(row, ^column) == ^value
+                        end
                     end)
 
                 query =

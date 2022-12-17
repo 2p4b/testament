@@ -10,9 +10,9 @@ defmodule Testament.Factory do
         use Signal.Event,
             stream: {Aggregate, :id}
 
-        blueprint do
-            field :id,      :string,   default: "123"
-            field :value,   :number,  default: 0
+        schema do
+            field :id,    :string,  default: "123"
+            field :value, :number,  default: 0
         end
 
     end
@@ -27,7 +27,7 @@ defmodule Testament.Factory do
 
     def stream_stage_factory do
         %Signal.Events.Stage{
-            stream: {Aggregate, "test.stream"},
+            stream: {"test.stream", Aggregate},
             version: nil,
             events: [],
         }
