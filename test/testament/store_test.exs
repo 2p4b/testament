@@ -14,30 +14,6 @@ defmodule Testament.StoreTest do
     describe "Store" do
 
         @tag :store
-        test "should have same topic as published event" do
-            event = build(:value_updated)
-
-            staged = Publisher.stage_event(event)
-
-            %{events: [event], stream: stream} = staged
-
-            %{payload: payload, topic: topic} = event
-
-            event_attrs =
-                Map.from_struct(event)
-                |> Map.put(:number, 9)
-                |> Map.put(:position, 0)
-                |> Map.put(:uuid, Ecto.UUID.generate())
-                |> Map.put(:stream, stream)
-
-            {:ok, store_event} = Store.create_event(event_attrs)
-
-            assert store_event.payload == payload
-            assert store_event.topic == topic
-            assert store_event.stream == stream
-        end
-
-        @tag :store
         test "create snapshot" do
             id = "snapid"
             payload = %{"hello" => "world"}

@@ -3,15 +3,16 @@ defmodule Testament.Store.Event do
     use Testament.Schema, row: :event
     import Ecto.Changeset
 
+    alias Testament.Repo
     alias Testament.Store.Event
 
     @fields [
-        :uuid, :topic, :position, :number, :stream_id,
+        :uuid, :topic, :index, :number, :stream_id,
         :payload, :causation_id, :correlation_id, :timestamp
     ]
 
     @required [
-        :topic, :position, :number, :stream_id,
+        :topic, :index, :number, :stream_id,
         :payload, :causation_id, :correlation_id, :timestamp
     ]
 
@@ -20,14 +21,25 @@ defmodule Testament.Store.Event do
     @primary_key {:number, :id, autogenerate: false}
 
     schema "events" do
-        field :uuid,            Ecto.UUID,  autogenerate: true
+        field :uuid,            Ecto.UUID
         field :topic,           :string
-        field :payload,         Testament.Repo.JSON
-        field :position,        :integer
+        field :payload,         Repo.JSON
+        field :index,           :integer
         field :stream_id,       :string
         field :causation_id,    :string
         field :correlation_id,  :string
         field :timestamp,       :utc_datetime_usec
+    end
+
+    @doc false
+    def changeset(%Signal.Event{}=event)  do
+        attrs = 
+            event
+            |> Map.from_struct() 
+
+        %Event{}
+        |> cast(attrs, @fields)
+        |> validate_required(@required)
     end
 
     @doc false
@@ -37,11 +49,12 @@ defmodule Testament.Store.Event do
         |> validate_required(@required)
     end
 
-    def to_stream_event(%Event{}=event) do
+    def to_signal_event(%Event{}=event) do
         attr = 
             event
             |> Map.from_struct()
-        struct(Signal.Stream.Event, attr)
+            |> Map.to_list()
+        struct(Signal.Event, attr)
     end
 
     def map_from_staged_event(event) when is_struct(event) do

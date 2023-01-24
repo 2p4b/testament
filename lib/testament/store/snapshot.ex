@@ -3,7 +3,7 @@ defmodule Testament.Store.Snapshot do
     import Ecto.Changeset
 
     alias Testament.Repo
-    alias Testament.DataType
+    alias Testament.Store.Snapshot
 
     @fields [:uuid, :id, :payload, :version, :type]
 
@@ -14,7 +14,7 @@ defmodule Testament.Store.Snapshot do
     schema "snapshots" do
         field :id,          :string
         field :type,        :string
-        field :payload,     Testament.Repo.JSON
+        field :payload,     Repo.JSON
         field :version,     :integer
     end
 
@@ -24,5 +24,13 @@ defmodule Testament.Store.Snapshot do
         |> cast(attrs, @fields)
         |> validate_required(@required)
         |> unsafe_validate_unique([:type, :id, :version], Repo, message: "snapshot version must be unique")
+    end
+
+    def to_signal_snapshot(%Snapshot{}=snapshot) do
+        attrs = 
+            snapshot
+            |> Map.from_struct()
+            |> Map.to_list()
+        struct(Signal.Snapshot, attrs)
     end
 end

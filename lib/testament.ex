@@ -1,10 +1,7 @@
 defmodule Testament do
 
-    alias Phoenix.PubSub
     alias Testament.Store
     alias Signal.Transaction
-    alias Testament.Publisher
-    alias Testament.Subscription.Broker
 
     @app :testament
     @behaviour Signal.Store
@@ -16,70 +13,52 @@ defmodule Testament do
     Contexts are also responsible for managing your data, regardless
     if it comes from the database, an external API or others.
     """
-    def record(snapshot, _opts \\ []) do
-        Store.record(snapshot)
+
+    def get_cursor(_opts) do
+        Store.index()
     end
 
-    def publish(%Transaction{}=transaction, _opts \\ []) do
-        Publisher.publish(transaction)
-    end
-
-    def purge(snap, opts \\ []) do
-        Store.purge(snap, opts)
-    end
-
-    def acknowledge(handle, number, _opts \\ []) do
-        Broker.acknowledge(handle, number)
-    end
-
-    def index(_opts) do
-        Publisher.index()
-    end
-
-    def event(number, _opts \\ []) do
-        case Store.get_event(number) do
-            %{}=event ->
-                Store.Event.to_stream_event(event)
-
-            nil -> 
+    def get_snapshot(id, _opts \\ []) do
+        case Store.get_snapshot(id) do
+            nil ->
                 nil
+            snapshot ->
+              snapshot
+              |> Store.Snapshot.to_signal_snapshot()
         end
     end
 
-    def forget(id, opts \\ []) do
-        Store.forget(id, opts)
+    def record_snapshot(snapshot, _opts \\ []) do
+        Store.record_snapshot(snapshot)
     end
 
-    def snapshot(id, opts \\ []) do
-        Store.snapshot(id, opts)
+    def delete_snapshot(uuid, _opts \\ []) do
+        Store.delete_snapshot(uuid)
     end
 
-    def listern(topic) do
-        PubSub.subscribe(:testament, topic)
+    def commit_transaction(%Transaction{}=transaction, _opts \\ []) do
+        Store.commit_transaction(transaction)
     end
 
-    def broadcast(topic, event) do
-        PubSub.broadcast(:testament, topic, event)
+    def handler_position(handle, _opts \\ []) do
+        Store.handler_position(handle)
     end
 
-    def listern_event() do
-        PubSub.subscribe(:testament, "events")
+    def handler_acknowledge(handle, number, _opts \\ []) do
+        Store.handler_acknowledge(handle, number)
     end
 
-    def broadcast_event(event) do
-        PubSub.broadcast(:testament, "events", event)
+    def read_events(reader, opts) do
+        Store.read_events(fn event -> 
+            event
+            |> Store.Event.to_signal_event()
+            |> reader.()
+        end, opts)
     end
 
-    def subscribe(handle, opts) when is_binary(handle) and is_list(opts) do
-        Broker.subscribe(handle, opts)
-    end
-
-    def subscription(handle, _opts \\ []) do
-        Broker.subscription(handle)
-    end
-
-    def unsubscribe(handle, _opts \\ []) do
-        Broker.unsubscribe(handle)
+    def list_events(opts) do
+        Store.list_events(opts)
+        |> Enum.map(&Testament.Store.Event.to_signal_event/1)
     end
 
     def stream_position(stream, _opts\\[]) do
