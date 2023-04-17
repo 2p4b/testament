@@ -7,13 +7,13 @@ defmodule Testament.Store.Event do
     alias Testament.Store.Event
 
     @fields [
-        :uuid, :topic, :index, :number, :stream_id,
-        :payload, :causation_id, :correlation_id, :timestamp
+        :uuid, :topic, :position, :number, :stream_id,
+        :data, :causation_id, :correlation_id, :timestamp
     ]
 
     @required [
-        :topic, :index, :number, :stream_id,
-        :payload, :causation_id, :correlation_id, :timestamp
+        :topic, :position, :number, :stream_id,
+        :data, :causation_id, :correlation_id, :timestamp
     ]
 
     @foreign_key_type :binary_id
@@ -23,8 +23,8 @@ defmodule Testament.Store.Event do
     schema "events" do
         field :uuid,            Ecto.UUID
         field :topic,           :string
-        field :payload,         Repo.JSON
-        field :index,           :integer
+        field :data,            Repo.JSON
+        field :position,        :integer
         field :stream_id,       :string
         field :causation_id,    :string
         field :correlation_id,  :string

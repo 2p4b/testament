@@ -1,88 +1,93 @@
 defmodule Testament do
+    defmacro __using__(opts) do
+        quote do
+            @ecto_opts unquote(opts)
+            @ecto_repo Module.concat(__MODULE__, Repo)
+            @before_compile unquote(__MODULE__)
 
-    alias Testament.Store
-    alias Signal.Transaction
+            @store_opts [
+                name: __MODULE__,
+                repo: @ecto_repo,
+                otp_app: Keyword.get(@ecto_opts, :otp_app),
+                ecto_repo_adapter: Keyword.get(@ecto_opts, :adapter)
+            ]
 
-    @app :testament
-    @behaviour Signal.Store
+            def start_link(opts) do
+                Testament.Supervisor.start_link(opts)
+            end
 
-    @moduledoc """
-    Testament keeps the contexts that define your domain
-    and business logic.
+            def child_spec(opts) do
+                opts = Keyword.merge(opts, @store_opts) 
+                %{
+                    id: __MODULE__,
+                    type: :supervisor,
+                    start: {__MODULE__, :start_link, [opts]},
+                }
+            end
 
-    Contexts are also responsible for managing your data, regardless
-    if it comes from the database, an external API or others.
-    """
+            def repo, do: @ecto_repo
 
-    def get_cursor(_opts) do
-        Store.index()
-    end
+            def get_cursor(opts), 
+                do: Testament.Repo.get_cursor(@ecto_repo, opts)
 
-    def get_snapshot(id, _opts \\ []) do
-        case Store.get_snapshot(id) do
-            nil ->
-                nil
-            snapshot ->
-              snapshot
-              |> Store.Snapshot.to_signal_snapshot()
+            def get_effect(uuid, opts\\[]), 
+                do: Testament.Repo.get_effect(@ecto_repo, uuid, opts)
+
+            def save_effect(effect, opts\\[]), 
+                do: Testament.Repo.save_effect(@ecto_repo, effect, opts)
+
+            def list_effects(namespace, opts\\[]),
+                do: Testament.Repo.list_effects(@ecto_repo, namespace, opts)
+
+            def delete_effect(uuid, opts\\[]),
+                do: Testament.Repo.delete_effect(@ecto_repo, uuid, opts)
+
+            def get_snapshot(id, opts\\[]),
+                do: Testament.Repo.get_snapshot(@ecto_repo, id, opts)
+
+            def record_snapshot(snapshot, opts\\[]),
+                do: Testament.Repo.record_snapshot(@ecto_repo, snapshot, opts)
+
+            def delete_snapshot(uuid, opts\\[]),
+                do: Testament.Repo.delete_snapshot(@ecto_repo, uuid, opts)
+
+            def commit_transaction(trnx, opts\\[]),
+                do: Testament.Repo.commit_transaction(@ecto_repo, trnx, opts)
+
+            def handler_position(handler, opts\\[]),
+                do: Testament.Repo.handler_position(@ecto_repo, handler, opts)
+
+            def handler_acknowledge(handler, num, opts\\[]),
+                do: Testament.Repo.handler_acknowledge(@ecto_repo, handler, num, opts)
+
+            def read_events(reader, opts\\[]),
+                do: Testament.Repo.read_events(@ecto_repo, reader, opts)
+
+            def read_stream_events(sid, reader, opts\\[]), 
+                do: Testament.Repo.read_stream_events(@ecto_repo, sid, reader, opts)
+
+            def list_stream_events(sid, opts), 
+                do: Testament.Repo.list_stream_events(@ecto_repo, sid, opts)
+
+            def list_events(opts), 
+                do: Testament.Repo.list_events(@ecto_repo, opts)
+
+            def stream_position(stream, opts\\[]), 
+                do: Testament.Repo.stream_position(@ecto_repo, stream, opts)
+
+            def install, do: Testament.Repo.install(@ecto_repo)
+
         end
     end
 
-    def record_snapshot(snapshot, _opts \\ []) do
-        Store.record_snapshot(snapshot)
-    end
-
-    def delete_snapshot(uuid, _opts \\ []) do
-        Store.delete_snapshot(uuid)
-    end
-
-    def commit_transaction(%Transaction{}=transaction, _opts \\ []) do
-        Store.commit_transaction(transaction)
-    end
-
-    def handler_position(handle, _opts \\ []) do
-        Store.handler_position(handle)
-    end
-
-    def handler_acknowledge(handle, number, _opts \\ []) do
-        Store.handler_acknowledge(handle, number)
-    end
-
-    def read_events(reader, opts) do
-        Store.read_events(fn event -> 
-            event
-            |> Store.Event.to_signal_event()
-            |> reader.()
-        end, opts)
-    end
-
-    def list_events(opts) do
-        Store.list_events(opts)
-        |> Enum.map(&Testament.Store.Event.to_signal_event/1)
-    end
-
-    def stream_position(stream, _opts\\[]) do
-        Store.stream_position(stream)
-    end
-
-    def install do
-        migrate()
-    end
-
-    def migrate do
-        for repo <- repos() do
-            {:ok, _, _} = 
-                repo
-                |> Ecto.Migrator.with_repo(fn repo -> 
-                    Ecto.Migrator.run(repo, :up, all: true)
-                end)
+    defmacro __before_compile__(_env) do
+        quote generated: true, location: :keep do
+            with [opts | [ecto_repo_adapter: adapter]] <- Keyword.take(@store_opts, [:otp_app, :ecto_repo_adapter]) do
+                defmodule Repo do
+                    @repo_opts [opts] ++ [adapter: adapter]
+                    use Ecto.Repo, @repo_opts
+                end
+            end
         end
-        {:ok, __MODULE__}
     end
-
-    defp repos do
-        Application.load(@app)
-        Application.fetch_env!(@app, :ecto_repos)
-    end
-
 end

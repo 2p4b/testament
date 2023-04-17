@@ -1,22 +1,22 @@
 defmodule Testament.Store do
 
     import Ecto.Query, warn: false
-    alias Testament.Repo
     alias Signal.Transaction
     alias Signal.Stream.Stage
     alias Testament.Store.Event
+    alias Testament.Store.Effect
     alias Testament.Store.Handle
     alias Testament.Store.Snapshot
 
-    def events_count() do
+    def events_count(repo) do
         query = from event in Event, select: count() 
-        Repo.one(query)
+        repo.one(query)
     end
 
-    def index() do
+    def index(repo) do
         index =
             from(e in Event, select: max(e.number))
-            |> Repo.one()
+            |> repo.one()
         if is_nil(index) do
             0
         else
@@ -24,31 +24,62 @@ defmodule Testament.Store do
         end
     end
 
-    def commit_transaction(%Transaction{}=transaction) do
-        %Transaction{staged: staged, snapshots: snapshots}=transaction
+    def get_effect(repo, uuid) do
+        repo.get(Effect, uuid)
+    end
 
+    def save_effect(repo, %Signal.Effect{uuid: uuid}=effect) do
+        result =
+            case get_effect(repo, uuid) do
+                nil  -> %Effect{}
+                effect -> effect
+            end
+            |> Effect.changeset(effect)
+            |> repo.insert_or_update()
+
+        case result do
+            {:ok, _} ->
+                :ok
+            error ->
+                error
+        end
+    end
+
+    def list_effects(repo, namespace) do
+        [namespace: namespace]
+        |> Effect.query()
+        |> repo.all()
+    end
+
+    def delete_effect(repo, uuid) do
+        {_, _} = 
+            [uuid: uuid]
+            |> Effect.query()
+            |> repo.delete_all()
+        :ok
+    end
+
+    def commit_transaction(repo, %Transaction{}=transaction) do
+        %Transaction{staged: staged}=transaction
         prepped_events = prepare_staged_events(staged)
-        prepped_snapshots = prepare_snapshots(snapshots) 
-
         {:ok, _} =
             Ecto.Multi.new()
             |> insert_events(prepped_events)
-            |> record_states(prepped_snapshots)
-            |> Repo.transaction()
+            |> repo.transaction()
 
         :ok
     end
 
-    def get_handle(id) when is_binary(id) do
+    def get_handle(repo, id) when is_binary(id) do
         Handle.query([id: id])
-        |> Repo.one()
+        |> repo.one()
     end
 
-    def update_handle(id, position) do
+    def update_handle(repo, id, position) do
         res =
             %Handle{id: id, position: position}
             |> Handle.changeset(%{id: id, position: position})
-            |> Repo.update()
+            |> repo.update()
 
         case res do
             {:ok, %Handle{position: position}} ->
@@ -59,8 +90,8 @@ defmodule Testament.Store do
         end
     end
 
-    def handler_position(handler) when is_binary(handler) do
-        case get_handle(handler) do
+    def handler_position(repo, handler) when is_binary(handler) do
+        case get_handle(repo, handler) do
             %Handle{position: position} ->
                 position
             _ ->
@@ -68,10 +99,10 @@ defmodule Testament.Store do
         end
     end
 
-    def handler_acknowledge(id, number) 
+    def handler_acknowledge(repo, id, number) 
     when is_binary(id) and is_integer(number) do
         handler = 
-            case Repo.get(Handle, id) do
+            case repo.get(Handle, id) do
                 nil  -> %Handle{id: id, position: 0}
                 handle ->  handle
             end
@@ -80,7 +111,7 @@ defmodule Testament.Store do
             if handler.position < number do
                 handler
                 |> Handle.changeset(%{position: number, id: id})
-                |> Repo.insert_or_update()
+                |> repo.insert_or_update()
             else
                 {:ok, handler}
             end
@@ -94,12 +125,12 @@ defmodule Testament.Store do
         end
     end
 
-    def get_event(number) do
+    def get_event(repo, number) do
         Event.query(number: number)
-        |> Repo.one()
+        |> repo.one()
     end
 
-    def pull_events(topics, position, amount) 
+    def pull_events(repo, topics, position, amount) 
     when is_list(topics) and is_integer(position) and is_integer(amount) do
         query = 
             from event in Event, 
@@ -110,18 +141,18 @@ defmodule Testament.Store do
             limit: ^amount
 
         query
-        |> Repo.all() 
+        |> repo.all() 
         |> Enum.map(&Event.to_signal_event/1)
     end
 
 
-    def get_or_create_handle(id) do
+    def get_or_create_handle(repo, id) do
         handle =
             Handle.query([id: id])
-            |> Repo.one()
+            |> repo.one()
 
         if is_nil(handle) do
-            {:ok, handle} = create_handle(id)
+            {:ok, handle} = create_handle(repo, id)
             handle
         else
             handle
@@ -132,88 +163,72 @@ defmodule Testament.Store do
         create_stream(%{type: type, id: id})
     end
 
-    def create_handle(id, position \\ 0) do
+    def create_handle(repo, id, position \\ 0) do
         %Handle{}
         |> Handle.changeset(%{id: id, position: position})
-        |> Repo.insert()
+        |> repo.insert()
     end
 
-    def stream_position(stream) do
+    def stream_position(repo, stream) do
         query =
             from [event: event] in Event.query([stream_id: stream]),
-            select: max(event.index)
-        Repo.one(query)
+            select: max(event.position)
+        repo.one(query)
     end
 
-    def update_handle_position(%Handle{}=handle, position) 
+    def update_handle_position(repo, %Handle{}=handle, position) 
     when is_integer(position) do
         handle
         |> Handle.changeset(%{position: position})
-        |> Repo.update()
+        |> repo.update()
     end
 
-    def record_snapshot(%Signal.Snapshot{uuid: uuid}=snap) do
-        case Repo.get(Snapshot, uuid) do
-            nil  -> %Snapshot{uuid: uuid}
+    def record_snapshot(repo, %Signal.Snapshot{id: id}=snap) do
+        case repo.get(Snapshot, id) do
+            nil  -> %Snapshot{id: id}
             snapshot ->  snapshot
         end
         |> Snapshot.changeset(Map.from_struct(snap))
-        |> Repo.insert_or_update()
+        |> repo.insert_or_update()
     end
 
-    def delete_snapshot(id, opts \\ [])
-    def delete_snapshot(id, _opts) when is_binary(id) do
-        delete_snapshot({id, nil})
+    def delete_snapshot(repo, id, opts\\[])
+    def delete_snapshot(repo, id, _opts) when is_binary(id) do
+        delete_snapshot(repo, {id, nil})
     end
-    def delete_snapshot(iden, _opts) when is_tuple(iden) do
+    def delete_snapshot(repo, iden, _opts) when is_tuple(iden) do
         query =
             case iden do
-                {id, nil} ->
-                    from shot in Snapshot.query([id: id]),
-                    where: is_nil(shot.type)
-
-                {id, type} when is_atom(type) ->
-                    type = Signal.Helper.module_to_string(type)
-                    Snapshot.query([id: id, type: type])
-
-                {id, type} when is_binary(type) ->
-                    Snapshot.query([id: id, type: type])
+                {id, _type} ->
+                    Snapshot.query([id: id])
             end
 
         query =
             from [snapshot: shot] in query,
             order_by: [asc: shot.version]
 
-        stream  = Repo.stream(query)
+        stream  = repo.stream(query)
 
-        Repo.transaction(fn ->
+        repo.transaction(fn ->
             stream
             |> Enum.each(fn snap ->
-                Repo.delete(snap)
+                repo.delete(snap)
             end)
         end)
         :ok
     end
 
-    def get_snapshot(iden, opts\\[])
-    def get_snapshot(iden, opts) when is_binary(iden) do
-        get_snapshot({iden, nil}, opts)
+    def get_snapshot(repo, iden, opts\\[])
+    def get_snapshot(repo, iden, opts) when is_binary(iden) do
+        get_snapshot(repo, {iden, nil}, opts)
     end
 
-    def get_snapshot(iden, opts) do
+    def get_snapshot(repo, iden, opts) do
         version = Keyword.get(opts, :version, :max)
         query = 
             case iden do
-                {id, nil} ->
-                    from shot in Snapshot.query([id: id]),
-                    where: is_nil(shot.type)
-
-                {id, type} when is_atom(type) ->
-                    type = Signal.Helper.module_to_string(type)
-                    Snapshot.query([id: id, type: type])
-
-                {id, type} when is_binary(type) ->
-                    Snapshot.query([id: id, type: type])
+                {id, _type} ->
+                    Snapshot.query([id: id])
             end
 
         query =
@@ -232,13 +247,13 @@ defmodule Testament.Store do
             end
 
 
-        Repo.one(from [snapshot: shot] in query, limit: 1, select: shot)
+        repo.one(from [snapshot: shot] in query, limit: 1, select: shot)
     end
 
-    def create_event(attrs) do
+    def create_event(repo, attrs) do
         %Event{}
         |> Event.changeset(attrs)
-        |> Repo.insert()
+        |> repo.insert()
     end
 
     def query_event_topics([]) do
@@ -276,48 +291,61 @@ defmodule Testament.Store do
     end
 
     def query_events_upto(number) when is_integer(number) do
-        query_events_upto(Event.query(), number)
+        query_events_upto(Event.query(), number, :number)
     end
 
-    def query_events_upto(query, number) when is_integer(number) do
+    def query_events_upto(query, value, :number) when is_integer(value) do
         from [event: event] in query,  
-        where: event.number <= ^number
+        where: event.position <= ^value
+    end
+
+    def query_events_upto(query, value, :position) when is_integer(value) do
+        from [event: event] in query,  
+        where: event.position <= ^value
     end
 
     def query_events_from(number) when is_integer(number) do
-        query_events_from(Event.query(), number)
+        query_events_from(Event.query(), number, :number)
     end
 
-    def query_events_from(query, number) when is_integer(number) do
+    def query_events_from(query, value, :number) when is_integer(value) do
         from [event: event] in query,  
-        where: event.number >= ^number
+        where: event.number >= ^value
+    end
+
+    def query_events_from(query, value, :position) when is_integer(value) do
+        from [event: event] in query,  
+        where: event.position >= ^value
     end
 
     def query_events_sort(order) when is_atom(order) do
         query_events_sort(Event.query(), order)
     end
 
-    def query_events_sort(query, :asc) do
-        from [event: event] in query,  
-        order_by: [asc: event.number]
+    def query_events_sort(query, order, index\\:number) do
+        order_by = List.wrap({order, index})
+        from query, order_by: ^order_by
     end
 
-    def query_events_sort(query, :desc) do
-        from [event: event] in query,  
-        order_by: [desc: event.number]
-    end
-
-    def list_events(opts \\ []) do
+    def list_events(repo, opts\\[]) do
         opts
         |> build_store_query()
-        |> Repo.all()
+        |> repo.all()
     end
 
-    def read_events(func, opts \\ []) do
+    def list_stream_events(repo, sid, opts\\[]) do
+        params = [streams: List.wrap(sid), index: :position]
+        opts
+        |> Keyword.merge(params)
+        |> build_store_query()
+        |> repo.all()
+    end
+
+    def read_events(repo, func, opts\\[]) do
         query = build_store_query(opts)
-        Repo.transaction(fn -> 
+        repo.transaction(fn -> 
             query
-            |> Repo.stream(max_rows: 10)
+            |> repo.stream(max_rows: 10)
             |> Enum.find_value(nil, fn event -> 
                 case Kernel.apply(func, [event]) do
                     :stop -> true
@@ -328,10 +356,30 @@ defmodule Testament.Store do
         :ok
     end
 
-    def build_store_query(opts \\ []) do
+    def read_stream_events(repo, sid, func, opts\\[]) do
+        params = [streams: List.wrap(sid), index: :position]
+        query = 
+            opts
+            |> Keyword.merge(params)
+            |> build_store_query()
+        repo.transaction(fn -> 
+            query
+            |> repo.stream(max_rows: 10)
+            |> Enum.find_value(nil, fn event -> 
+                case Kernel.apply(func, [event]) do
+                    :stop -> true
+                    _ -> false
+                end
+            end)
+        end, [timeout: :infinity])
+        :ok
+    end
+
+    def build_store_query(opts\\[]) do
         streams = Keyword.get(opts, :streams, [])
         topics = Keyword.get(opts, :topics, [])
         range = Keyword.get(opts, :range, [1])
+        type = Keyword.get(opts, :index, :number)
 
         query = 
             streams
@@ -344,7 +392,7 @@ defmodule Testament.Store do
         query = 
             if is_integer(lower) do
                 query
-                |> query_events_from(lower)
+                |> query_events_from(lower, type)
             else
                 query
             end
@@ -352,46 +400,19 @@ defmodule Testament.Store do
         query = 
             if is_integer(upper) do
                 query
-                |> query_events_upto(upper)
+                |> query_events_upto(upper, type)
             else
                 query
             end
 
         query
-        |> query_events_sort(direction)
-
+        |> query_events_sort(direction, type)
     end
 
     def prepare_staged_events(staged) when is_list(staged) do
         staged
         |> Enum.reduce([], fn %Stage{events: events}, acc -> 
             acc ++ Enum.map(events, &Event.changeset/1)
-        end)
-    end
-
-    def prepare_snapshots(snapshots) when is_list(snapshots) do
-        snapshot_uuids = Enum.map(snapshots, &(Map.get(&1, :uuid)))
-
-        recorded =
-            cond do
-                Enum.empty?(snapshot_uuids) -> %{}
-
-                true ->
-                    Snapshot.query(uuid: snapshot_uuids)
-                    |> Repo.all()
-                    |> Enum.reduce(%{}, fn snapshot, acc -> 
-                        Map.put(acc, snapshot.uuid, snapshot) 
-                    end)
-            end
-
-        Enum.map(snapshots, fn snapshot -> 
-            changeset =
-                case Map.get(recorded, snapshot.uuid) do
-                    nil  -> %Snapshot{uuid: snapshot.uuid}
-                    snapshot ->  snapshot
-                end
-                |> Snapshot.changeset(Map.from_struct(snapshot))
-            {snapshot.uuid, changeset}
         end)
     end
 
@@ -405,14 +426,5 @@ defmodule Testament.Store do
         |> Ecto.Multi.insert(id, event_attrs)
         |> insert_events(rest)
     end
-
-    def record_states(transaction, []) do
-        transaction
-    end
-
-    def record_states(transaction, [{uuid, changeset} | rest]) do
-        transaction
-        |> Ecto.Multi.insert_or_update(uuid, changeset)
-        |> record_states(rest)
-    end
 end
+

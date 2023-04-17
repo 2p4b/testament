@@ -7,7 +7,7 @@ defmodule Testament.Repo.Migrations.CreateEvents do
             add :uuid,              :uuid,      unique: true
             add :topic,             :string
             add :position,          :integer
-            add :payload,           :string
+            add :data,              :text
             add :stream_id,         :string
             add :causation_id,      :string
             add :correlation_id,    :string

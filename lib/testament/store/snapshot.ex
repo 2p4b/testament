@@ -5,16 +5,14 @@ defmodule Testament.Store.Snapshot do
     alias Testament.Repo
     alias Testament.Store.Snapshot
 
-    @fields [:uuid, :id, :payload, :version, :type]
+    @fields [:id, :data, :version]
 
-    @required [:uuid, :id, :payload, :version]
+    @required [:id, :data, :version]
 
-    @primary_key {:uuid, :binary_id, autogenerate: false}
+    @primary_key {:id, :string, autogenerate: false}
 
     schema "snapshots" do
-        field :id,          :string
-        field :type,        :string
-        field :payload,     Repo.JSON
+        field :data,        Repo.JSON
         field :version,     :integer
     end
 
@@ -23,7 +21,6 @@ defmodule Testament.Store.Snapshot do
         snapshot
         |> cast(attrs, @fields)
         |> validate_required(@required)
-        |> unsafe_validate_unique([:type, :id, :version], Repo, message: "snapshot version must be unique")
     end
 
     def to_signal_snapshot(%Snapshot{}=snapshot) do

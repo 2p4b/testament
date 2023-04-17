@@ -8,8 +8,7 @@ defmodule Testament.Application do
     def start(_type, _args) do
         name = Testament.Supervisor
         strategy = :one_for_one
-        children = [Testament.Repo]
-        Supervisor.start_link(children, strategy: strategy, name: name)
+        Supervisor.start_link([], strategy: strategy, name: name)
     end
 
 end
