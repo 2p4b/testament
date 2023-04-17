@@ -5,11 +5,7 @@ defmodule Testament.MixProject do
         [
             app: :testament,
             version: "0.1.0",
-            build_path: "../../_build",
-            config_path: "../../config/config.exs",
-            deps_path: "../../deps",
-            lockfile: "../../mix.lock",
-            elixir: "~> 1.5",
+            elixir: "~> 1.14",
             elixirc_paths: elixirc_paths(Mix.env()),
             start_permanent: Mix.env() == :prod,
             consolidate_protocols: Mix.env() != :test,
@@ -55,8 +51,8 @@ defmodule Testament.MixProject do
     # See the documentation for `Mix` for more info on aliases.
     defp aliases do
         [
-            "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-            "ecto.reset": ["ecto.drop", "ecto.setup"],
+            "testament.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+            "testament.reset": ["ecto.drop", "ecto.setup"],
             test: ["ecto.create --quiet", "ecto.migrate", "test"]
         ]
     end
