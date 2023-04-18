@@ -12,7 +12,7 @@ defmodule Testament do
                 ecto_repo_adapter: @ecto_adapter
             ]
 
-            @behavior Signal.Store
+            @behaviour Signal.Store
             @before_compile unquote(__MODULE__)
 
             def start_link(opts) do
@@ -79,7 +79,7 @@ defmodule Testament do
                 do: Testament.Repo.stream_position(@ecto_repo, stream, opts)
 
             def ensure_ready(opts\\[]) do
-                unless __is_setup__?(opts) do
+                unless __MODULE__.__setup__?(opts) do
                     ensure_ready(opts)
                 else
                     :ok
@@ -92,7 +92,7 @@ defmodule Testament do
 
             def __reset__(opts\\[]) do 
                 Testament.Repo.delete_storage(@ecto_repo)
-                __setup__(opts)
+                __MODULE__.__setup__(opts)
             end
 
         end
