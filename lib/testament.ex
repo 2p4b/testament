@@ -113,7 +113,7 @@ defmodule Testament do
                     use Ecto.Repo, @repo_opts
 
                     def init(:supervisor, config) do
-                        env_config = Application.get_env(@otp_app, @repo_storename)
+                        env_config = Application.get_env(@otp_app, @repo_storename, [])
                         {:ok, Keyword.merge(config, env_config)}
                     end
 
