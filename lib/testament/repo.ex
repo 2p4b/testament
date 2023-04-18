@@ -152,12 +152,6 @@ defmodule Testament.Repo do
         storage_up?(repo) and (list_migrated(repo) |> Enum.empty?() |> Kernel.not())
     end
 
-    defp ensure_installed(repo) do
-        unless initialized?(repo)  do
-            init(repo)
-        end
-    end
-
     defp ensure_prereq_started do
         {:ok, _} = Application.ensure_all_started(:ecto_sql)
     end
