@@ -11,9 +11,10 @@ defmodule Testament.Supervisor do
 
     @doc false
     def init(opts) do
-        repo = Keyword.fetch!(opts, :repo)
+        store_name = Keyword.fetch!(opts, :name)
+        repo = Keyword.fetch!(opts, :ecto_repo)
         children = [repo]
-        Supervisor.init(children, strategy: :one_for_all)
+        Supervisor.init(children, strategy: :one_for_one)
     end
 
 

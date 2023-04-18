@@ -2,15 +2,17 @@ defmodule Testament do
     defmacro __using__(opts) do
         quote do
             @ecto_opts unquote(opts)
+            @otp_app  Keyword.get(@ecto_opts, :otp_app)
             @ecto_repo Module.concat(__MODULE__, Repo)
-            @before_compile unquote(__MODULE__)
-
+            @ecto_adapter Keyword.get(@ecto_opts, :adapter)
             @store_opts [
                 name: __MODULE__,
-                repo: @ecto_repo,
-                otp_app: Keyword.get(@ecto_opts, :otp_app),
-                ecto_repo_adapter: Keyword.get(@ecto_opts, :adapter)
+                otp_app: @otp_app,
+                ecto_repo: @ecto_repo,
+                ecto_repo_adapter: @ecto_adapter
             ]
+
+            @before_compile unquote(__MODULE__)
 
             def start_link(opts) do
                 Testament.Supervisor.start_link(opts)
@@ -75,18 +77,38 @@ defmodule Testament do
             def stream_position(stream, opts\\[]), 
                 do: Testament.Repo.stream_position(@ecto_repo, stream, opts)
 
-            def install, do: Testament.Repo.install(@ecto_repo)
+            def __init__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
+
+            def __init__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
+
+            def __take_down__(_opts\\[]), do: Testament.Repo.delete_storage(@ecto_repo)
 
         end
     end
 
     defmacro __before_compile__(_env) do
         quote generated: true, location: :keep do
-            with [opts | [ecto_repo_adapter: adapter]] <- Keyword.take(@store_opts, [:otp_app, :ecto_repo_adapter]) do
+            with opts <- Module.get_attribute(__MODULE__, :store_opts),
+                 otp_app when is_atom(otp_app) <- Keyword.get(opts, :otp_app),
+                 adapter when is_atom(adapter) <- Keyword.get(opts, :ecto_repo_adapter) do
+
+                storename = __MODULE__
+                 
                 defmodule Repo do
-                    @repo_opts [opts] ++ [adapter: adapter]
+                    @repo_storename storename
+                    @repo_opts [otp_app: otp_app, adapter: adapter]
                     use Ecto.Repo, @repo_opts
+
+                    def init(:supervisor, config) do
+                        {:ok, config}
+                    end
+
+                    def init(:runtime, config) do
+                        {:ok, config}
+                    end
                 end
+            else
+                reason -> raise reason
             end
         end
     end
