@@ -88,7 +88,7 @@ defmodule Testament do
 
             def __setup__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
 
-            def __is_setup__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
+            def __setup__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
 
             def __reset__(opts\\[]) do 
                 Testament.Repo.delete_storage(@ecto_repo)
