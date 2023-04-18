@@ -107,16 +107,18 @@ defmodule Testament do
                 storename = __MODULE__
                  
                 defmodule Repo do
+                    @otp_app otp_app
                     @repo_storename storename
                     @repo_opts [otp_app: otp_app, adapter: adapter]
                     use Ecto.Repo, @repo_opts
 
                     def init(:supervisor, config) do
-                        {:ok, config}
+                        env_config = Application.get_env(@otp_app, @repo_storename)
+                        {:ok, Keyword.merge(config, env_config)}
                     end
 
                     def init(:runtime, config) do
-                        {:ok, config}
+                        init(:supervisor, config)
                     end
                 end
             else
