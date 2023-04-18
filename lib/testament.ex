@@ -12,6 +12,7 @@ defmodule Testament do
                 ecto_repo_adapter: @ecto_adapter
             ]
 
+            @behavior Signal.Store
             @before_compile unquote(__MODULE__)
 
             def start_link(opts) do
@@ -77,11 +78,22 @@ defmodule Testament do
             def stream_position(stream, opts\\[]), 
                 do: Testament.Repo.stream_position(@ecto_repo, stream, opts)
 
-            def __init__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
+            def ensure_ready(opts\\[]) do
+                unless __is_setup__?(opts) do
+                    ensure_ready(opts)
+                else
+                    :ok
+                end
+            end
 
-            def __init__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
+            def __setup__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
 
-            def __take_down__(_opts\\[]), do: Testament.Repo.delete_storage(@ecto_repo)
+            def __is_setup__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
+
+            def __reset__(opts\\[]) do 
+                Testament.Repo.delete_storage(@ecto_repo)
+                __setup__(opts)
+            end
 
         end
     end
