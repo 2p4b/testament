@@ -296,7 +296,7 @@ defmodule Testament.Store do
 
     def query_events_upto(query, value, :number) when is_integer(value) do
         from [event: event] in query,  
-        where: event.position <= ^value
+        where: event.number <= ^value
     end
 
     def query_events_upto(query, value, :position) when is_integer(value) do
@@ -343,16 +343,19 @@ defmodule Testament.Store do
 
     def read_events(repo, func, opts\\[]) do
         query = build_store_query(opts)
-        repo.transaction(fn -> 
-            query
-            |> repo.stream(max_rows: 10)
-            |> Enum.find_value(nil, fn event -> 
-                case Kernel.apply(func, [event]) do
-                    :stop -> true
-                    _ -> false
-                end
-            end)
-        end, [timeout: :infinity])
+
+        read_events_with_callback(repo, query, func, opts)
+        
+        # repo.transaction(fn -> 
+        #     query
+        #     |> repo.stream(max_rows: 10)
+        #     |> Enum.find_value(nil, fn event -> 
+        #         case Kernel.apply(func, [event]) do
+        #             :stop -> true
+        #             _ -> false
+        #         end
+        #     end)
+        # end, [timeout: :infinity])
         :ok
     end
 
@@ -362,16 +365,7 @@ defmodule Testament.Store do
             opts
             |> Keyword.merge(params)
             |> build_store_query()
-        repo.transaction(fn -> 
-            query
-            |> repo.stream(max_rows: 10)
-            |> Enum.find_value(nil, fn event -> 
-                case Kernel.apply(func, [event]) do
-                    :stop -> true
-                    _ -> false
-                end
-            end)
-        end, [timeout: :infinity])
+        read_events_with_callback(repo, query, func, opts)
         :ok
     end
 
@@ -425,6 +419,60 @@ defmodule Testament.Store do
         transaction
         |> Ecto.Multi.insert(id, event_attrs)
         |> insert_events(rest)
+    end
+
+    defp read_events_with_callback(repo, query, callback, opts) do
+        buffer = Keyword.get(opts, :buffer, 10)
+        [_lower, _upper, direction] = 
+            opts
+            |> Keyword.get(:range, [1])
+            |> Signal.Store.Helper.range()
+
+        Stream.cycle([1])
+        |> Enum.reduce_while(nil, fn _, last -> 
+            stream_query =
+                cond do
+                    is_nil(last) ->
+                        query
+
+                    direction == :asc ->
+                        from [event: event] in query,
+                        where: event.number > ^last
+
+                    direction == :desc ->
+                        from [event: event] in query,
+                        where: event.number < ^last
+
+                    true ->
+                        raise "Invalid read direction: #{direction}"
+                end
+
+            events = 
+                from([event: event] in stream_query, limit: ^buffer) 
+                |> repo.all()
+
+            next_step = 
+                events
+                |> Enum.find_value(:cont, fn event -> 
+                    case Kernel.apply(callback, [event]) do
+                        :stop -> event.number
+                        _ -> false
+                    end
+                end)
+
+            case {next_step, events} do
+                {:cont, []} ->
+                      {:halt, 0}
+
+                {:cont, events} ->
+                      %{number: number} = List.last(events)
+                      {:cont, number}
+
+                {stop, _events} when is_integer(stop) ->
+                      {:halt, stop}
+            end
+
+        end)
     end
 end
 
