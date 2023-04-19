@@ -86,6 +86,10 @@ defmodule Testament do
                 end
             end
 
+            def ready?(_opts\\[]) do
+                Process.alive?(__MODULE__.Repo)
+            end
+
             def __setup__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
 
             def __setup__?(_opts\\[]), do: Testament.Repo.initialized?(@ecto_repo)
