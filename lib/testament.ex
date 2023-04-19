@@ -87,7 +87,12 @@ defmodule Testament do
             end
 
             def ready?(_opts\\[]) do
-                Process.alive?(__MODULE__.Repo)
+                case GenServer.whereis(__MODULE__.Repo) do
+                    pid when is_pid(pid) -> 
+                        Process.alive?(pid)
+                    _ ->
+                        false
+                end
             end
 
             def __setup__(_opts\\[]), do: Testament.Repo.init(@ecto_repo)
