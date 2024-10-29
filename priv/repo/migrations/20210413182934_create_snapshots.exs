@@ -3,7 +3,8 @@ defmodule Testament.Repo.Migrations.CreateSnapshots do
 
     def change do
         create table(:snapshots, primary_key: false) do
-            add :id,            :string,    primary_key: true
+            add :uuid,          :uuid,      primary_key: true
+            add :id,            :string
             add :version,       :integer
             add :data,          :text
         end

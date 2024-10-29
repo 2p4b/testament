@@ -183,8 +183,8 @@ defmodule Testament.Store do
         |> repo.update()
     end
 
-    def record_snapshot(repo, %Signal.Snapshot{id: id}=snap) do
-        case repo.get(Snapshot, id) do
+    def record_snapshot(repo, %Signal.Snapshot{id: id, version: version}=snap) do
+        case get_snapshot(repo, id, version: version) do
             nil  -> %Snapshot{id: id}
             snapshot ->  snapshot
         end

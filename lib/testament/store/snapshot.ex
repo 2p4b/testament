@@ -5,13 +5,14 @@ defmodule Testament.Store.Snapshot do
     alias Testament.Repo
     alias Testament.Store.Snapshot
 
-    @fields [:id, :data, :version]
+    @fields [:uuid, :id, :data, :version]
 
-    @required [:id, :data, :version]
+    @required [:uuid, :id, :data, :version]
 
-    @primary_key {:id, :string, autogenerate: false}
+    @primary_key {:uuid, :binary_id, autogenerate: true}
 
     schema "snapshots" do
+        field :id,          :string
         field :data,        Repo.JSON
         field :version,     :integer
     end
