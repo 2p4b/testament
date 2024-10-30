@@ -38,8 +38,8 @@ defmodule Testament.MixProject do
             {:ecto_sql, "~> 3.1"},
             {:ex_machina, "~> 2.6.0"},
             {:phoenix_pubsub, "~> 2.0"},
-            #{:signal, git: "https://github.com/mfoncho/signal.git", branch: "dev"},
-            {:signal, path: "~/Projects/elixir/signal"},
+            {:signal, git: "https://github.com/mfoncho/signal.git", branch: "main"},
+            #{:signal, path: "~/Projects/elixir/signal"},
         ]
     end
 
